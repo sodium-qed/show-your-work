@@ -180,6 +180,7 @@ async function exportPDF() {
 function aiControls(editor) {
   if(aiEditor!==editor)return;
   $('#ai-run').disabled=editor.busy||!editor.available||!editor.assets?.length;
+  $('#ai-recheck').disabled=editor.busy||!editor.assets?.length||location.protocol!=='http:'||location.hostname!=='localhost';
   $('#ai-refresh').disabled=editor.busy||!editor.plan;
   $('#ai-add-block').disabled=editor.busy||!editor.plan||editor.plan.blocks.length>=24;
   $('#ai-blocks').inert=editor.busy;
@@ -198,6 +199,14 @@ function aiDirty(editor) {
   $('#ai-preview-pages').replaceChildren();
   $('#ai-review-status').textContent='Changes are not yet previewed. Choose Update preview before applying.';
   aiControls(editor);
+}
+async function checkAiStatus(editor) {
+  const response=await fetch('/api/ai/status',{signal:AbortSignal.any([editor.controller.signal,AbortSignal.timeout(8000)])});
+  if(!response.ok)throw new Error('The local AI helper is unavailable. Restart the app with npm start.');
+  const status=await response.json();if(aiEditor!==editor)return;
+  editor.available=status.available===true;
+  $('#ai-status').textContent=editor.available?`Ready · ${status.model}. Ollama will process ${editor.assets.length} selected image${editor.assets.length===1?'':'s'} on this computer.`:(status.message||'Start Ollama and install the local vision model, then check again.');
+  $('#ai-setup').hidden=editor.available;
 }
 async function openAiEditor(problem=null) {
   if(state.busy||aiEditor||(!problem&&(!state.crop||state.crop.regionId||!source())))return;
@@ -224,12 +233,7 @@ async function openAiEditor(problem=null) {
     editor.images=[];
     for(const asset of editor.assets){editor.images.push(await aiImage(asset));if(aiEditor!==editor)return;}
     aiOriginals(editor);
-    const response=await fetch('/api/ai/status',{signal:AbortSignal.any([editor.controller.signal,AbortSignal.timeout(8000)])});
-    if(!response.ok)throw new Error('The local AI helper is unavailable. Restart the app with npm start.');
-    const status=await response.json();if(aiEditor!==editor)return;
-    editor.available=status.available===true;
-    $('#ai-status').textContent=editor.available?`Ready · ${status.model}. Generate will send ${editor.assets.length} selected image${editor.assets.length===1?'':'s'}.`:(status.message||'Set OPENAI_API_KEY in .env and restart the local app.');
-    $('#ai-setup').hidden=editor.available;
+    await checkAiStatus(editor);
   } catch(error) {
     if(aiEditor!==editor)return;
     $('#ai-status').textContent=error.message||'Could not prepare the selection.';
@@ -262,22 +266,29 @@ async function aiBuildPreview(editor) {
   aiOriginals(editor);aiControls(editor);
 }
 $('#ai-format').addEventListener('click',()=>openAiEditor());
+$('#ai-recheck').addEventListener('click',async()=>{
+  const editor=aiEditor;if(!editor||editor.busy||!editor.assets?.length)return;
+  editor.busy=true;editor.available=false;aiControls(editor);$('#ai-status').textContent='Checking the local Ollama model…';
+  try {await checkAiStatus(editor);}
+  catch(error){if(aiEditor===editor){$('#ai-status').textContent=error.message||'Could not reach the local helper.';$('#ai-setup').hidden=false;}}
+  finally {editor.busy=false;aiControls(editor);}
+});
 for(const id of ['#ai-cancel','#ai-close'])$(id).addEventListener('click',()=>$('#ai-dialog').close());
 $('#ai-dialog').addEventListener('close',()=>{aiEditor?.controller.abort();aiEditor=null;});
 $('#ai-run').addEventListener('click',async()=>{
   const editor=aiEditor;if(!editor||editor.busy||!editor.available)return;
   editor.busy=true;aiDirty(editor);$('#ai-warnings').replaceChildren();
-  $('#ai-status').textContent='AI is separating the problem… You can cancel while it works.';
+  $('#ai-status').textContent='Formatting on this computer… The first run can take several minutes while the model loads. You can cancel while it works.';
   $('#ai-review-status').textContent='';
   try {
-    const response=await fetch('/api/ai/format',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({images:editor.images}),signal:AbortSignal.any([editor.controller.signal,AbortSignal.timeout(130000)])});
+    const response=await fetch('/api/ai/format',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({images:editor.images}),signal:AbortSignal.any([editor.controller.signal,AbortSignal.timeout(610000)])});
     const result=await response.json();
     if(aiEditor!==editor)return;
     if(!response.ok)throw new Error(result.error||'AI formatting failed. Try again or use manual crops.');
     editor.plan=validateAiPlan(result.plan,editor.assets.length);
-    $('#ai-status').textContent=`Building the PDF proposal · ${result.model||'OpenAI'}`;
+    $('#ai-status').textContent=`Building the PDF proposal · ${result.model||'Ollama'}`;
     $('#ai-usage').textContent=Number.isFinite(result.usage?.inputTokens)&&Number.isFinite(result.usage?.outputTokens)
-      ?`This request: ${result.usage.inputTokens.toLocaleString()} input tokens · ${result.usage.outputTokens.toLocaleString()} output tokens. Another Generate request incurs another API charge.`:'';
+      ?`Local generation: ${result.usage.inputTokens.toLocaleString()} input tokens · ${result.usage.outputTokens.toLocaleString()} output tokens. No API charge.`:'';
     aiBlocks(editor);await aiBuildPreview(editor);
     if(aiEditor===editor){$('#ai-status').textContent='Proposal ready. Review it below.';$('#ai-run').textContent='Generate again';}
   } catch(error) {

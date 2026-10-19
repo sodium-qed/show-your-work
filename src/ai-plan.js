@@ -32,7 +32,7 @@ const blockSchema = kind => ({
   },
 });
 
-/** Pass as the schema of an OpenAI Responses strict json_schema text format. */
+/** Pass to the local model runtime; validate every returned plan separately. */
 export const AI_PLAN_SCHEMA = deepFreeze({
   type: 'object',
   additionalProperties: false,

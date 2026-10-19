@@ -1,6 +1,6 @@
 # Testing Margin
 
-These commands are for source development and verification. Manual use of the distributed `margin.html` requires only a supported browser. Optional AI formatting requires the localhost Node server and a server-side OpenAI API key; it is not available from the offline file alone.
+These commands are for source development and verification. Manual use of the distributed `margin.html` requires only a supported browser. Optional AI formatting requires the localhost Node server, Ollama, and a downloaded local vision model; it is not available from the offline file alone. It requires no API key.
 
 ## Automated checks
 
@@ -25,7 +25,7 @@ npm run test:text
 npm run test:ai
 ```
 
-`test:e2e` covers the complete crop-to-PDF workflow. `test:ui` runs `tests/preferences-shortcuts.e2e.mjs` for preferences and keyboard shortcuts. `test:text` runs `tests/reflow-text.e2e.mjs` for reviewed prose, mixed text/image problems, text editing, and manual entry when no text layer is available. `test:ai` runs `tests/ai-format.e2e.mjs` with mocked AI responses; it requires no API key and makes no live provider call.
+`test:e2e` covers the complete crop-to-PDF workflow. `test:ui` runs `tests/preferences-shortcuts.e2e.mjs` for preferences and keyboard shortcuts. `test:text` runs `tests/reflow-text.e2e.mjs` for reviewed prose, mixed text/image problems, text editing, and manual entry when no text layer is available. `test:ai` runs `tests/ai-format.e2e.mjs` with mocked AI responses; its integration checks require no Ollama installation or model download and run no real inference.
 
 By default, the suite starts a local source server at `http://localhost:4173` when none is already running, and stops any server it starts. It can reuse an existing server. `BASE_URL` selects another target. An HTTP target whose hostname is not `localhost` must already be running; a `file://` target runs without a server and disables browser network access. `BROWSER_EXECUTABLE` optionally selects an installed Chromium executable.
 
@@ -60,6 +60,16 @@ npx playwright install chromium
 On a Linux host missing browser system libraries, Playwright's `--with-deps` installation option also installs operating-system dependencies and may require elevated privileges.
 
 Browser checks write screenshots, downloaded PDFs, and a results report to the mode's output directory. The main workflow report is `e2e-results.json`; the focused suites use the filenames above. Reports record executed steps, browser errors, and network activity, including worker requests. These are generated test artifacts rather than application inputs.
+
+## Optional real-model check
+
+After following the [local AI setup](../README.md#optional-ai-formatting), keep Ollama running and run:
+
+```bash
+npm run test:ai:local
+```
+
+This opt-in command uses the already installed model and local computing resources. It starts a temporary localhost helper, submits the original synthetic `public/samples/example.png`, and validates the returned plan. Only a successful response writes `tests/output/local-ai/plan.json`. It never starts Ollama or downloads weights. A successful run checks the connection and plan structure; review the prose and crop bounds separately to assess accuracy.
 
 ## Test fixtures
 
@@ -102,37 +112,27 @@ These checks describe the intended verification scope. A listed check is not a c
 - Open the standalone HTML through `file://` with network access disabled. Exercise its embedded sample, imported PDF/image, text input, crop controls, preview, and PDF download. Confirm no external HTTP requests or missing-asset errors occur.
 - Check the interface at desktop and narrow viewport widths, keyboard operation of form controls, clear disabled states, and useful empty/error states.
 - With a mocked AI helper, select a whole crop or a saved problem with multiple regions. Confirm opening the review does not request model inference; **Generate with AI** submits only the selected images/text. Inspect the proposed PDF, edit prose and bounds, update the preview locally, then add or replace the problem and exercise **Restore original**.
-- Verify AI cancellation, provider failures, malformed proposals, and missing configuration leave existing work usable. Confirm the key is never exposed to client code or served files, and the standalone/manual workflow remains usable without AI or network access.
+- Verify AI cancellation, unavailable Ollama, missing models, inference failures, and malformed proposals leave existing work usable. Reject text-only models, cloud model names/metadata, and remote endpoint configuration before submitting source content. Confirm the standalone/manual workflow remains usable without AI or network access.
 
 ## AI test scope
 
-No live OpenAI key is configured for the recorded verification. `test:ai` intercepts the browser's local helper requests with deterministic responses. `tests/ai-service.test.mjs` separately injects a mock provider into the real local server. These checks cover integration behavior, not live formatting quality, mathematical recognition accuracy, latency, or billed cost.
+The verification environment has no Ollama installation or GPU and had approximately 1.6 GB available memory, so the default 4B model has not been run here. `test:ai` intercepts the browser's local helper requests with deterministic responses. `tests/ai-service.test.mjs` separately injects mock Ollama responses into the real local server. These checks cover integration behavior, not live formatting quality, mathematical recognition accuracy, latency, or model memory requirements.
 
-The Node suites check the proposal contract and backend request limits, origin restrictions, credential handling, provider failures, cancellation, timeouts, and static-file restrictions. Browser checks cover the review controls, original-image preservation, exact preview/export, replacement, and restoration.
+The Node suites check the proposal contract and backend request limits, origin restrictions, local model validation, inference failures, cancellation, timeouts, and static-file restrictions. Browser checks cover the review controls, original-image preservation, exact preview/export, replacement, and restoration.
 
 ## Recorded results
 
-The optional AI revision was verified on 2026-10-19 using Node.js 24.19.0 and Playwright 1.56.1 with headless Chromium 141. All **115 Node tests** and **61 stages across seven browser runs** passed. AI integration checks used mocks; no live OpenAI request was made.
+Verification of the local Ollama revision is pending. Earlier provider-integration results are not counted as checks of this revision. Current results will be recorded after the updated suites run.
 
 | Check | Result |
 | --- | --- |
-| Source `npm run test:ai` | **8 stages passed** with mocked helper responses; all 7 exported pages matched their previews pixel for pixel. |
-| Packaged HTTP `test:ai` | **8 stages passed** against the standalone bundle with mocked helper responses; all 7 exported pages matched their previews. |
-| Offline HTML `test:ai` | **3 stages passed** with networking disabled; the manual PDF's single page matched its preview. Zero HTTP/HTTPS requests or API calls occurred. |
-| `npm test` | **115 tests passed**: 15 detection, 36 layout, 14 preferences, 13 selected-prose extraction, 13 AI-plan contract, and 24 AI-service tests. Layout includes 400 seeded cases comparing spacing modes. |
-| Source `npm run test:e2e` | **13 stages passed**; all 19 exported pages matched their previews pixel for pixel. No runtime errors or external requests occurred. |
-| Source `npm run test:ui` | **8 stages passed**, including preferences, shortcut safeguards, unchanged crop geometry, and numbering across 12 exported pages. No runtime errors or external requests occurred. |
-| Source `npm run test:text` | **8 stages passed**; all 7 pages across 5 exported PDFs matched their previews. No runtime errors or external requests occurred. |
-| Offline HTML `test:e2e` | **13 stages passed** with networking disabled; all 19 exported pages matched their previews. Zero HTTP/HTTPS requests, runtime errors, or external uploads occurred. |
-| `npm run build` | Regenerated four identical standalone HTML files at the root and in `dist/`, **8,146,776 bytes** (approximately **7.77 MiB**) each. |
-
-The two HTTP AI suites verified one request per explicit generation, editable text and bounds, local preview updates, unchanged original math/diagram pixels, multi-region replacement, and full restoration of original regions/settings. Cancellation, a provider error, and an invalid plan preserved existing work. An image-only PDF exercised vision input through a mock. Each run deliberately generated one HTTP 502 error and one cancelled request; there were **zero unexpected errors or external requests**. The offline suite showed local-helper instructions, retained manual operation, and observed only local resources, including one blob worker.
-
-Visual review of the PDF from a mocked proposal found no clipping or overlap. Prose used the 540-point printable width, while the original 1133 × 833-pixel equation/graph crop retained its decoded pixels and source print scale.
-
-AI evidence is in `tests/output/ai/ai-format-results.json`, `tests/output/ai-bundled/ai-format-results.json`, and `tests/output/ai-offline/ai-format-results.json`, alongside PDFs and screenshots. These reports contain no live model result.
-
-Manual regression evidence is in `tests/output/e2e-results.json`, `tests/output/preferences/preferences-shortcuts-results.json`, `tests/output/text/reflow-text-results.json`, and `tests/output/offline/e2e-results.json`. The source and offline full workflows each checked 19 PDF pages, the source prose suite checked 7, and the focused UI suite inspected 12 pages for geometry and numbering.
+| `npm test` | Current run pending. |
+| Source `npm run test:ai` | Current mocked Ollama run pending. |
+| Packaged HTTP `test:ai` | Current mocked Ollama run pending. |
+| Offline HTML `test:ai` | Current fallback/manual run pending. |
+| Manual workflow regressions | Current run selection and results pending. |
+| `npm run build` | Current build result pending. |
+| `npm run test:ai:local` | The unavailable-Ollama path correctly exited with status 1 and a clear instruction to start Ollama. No real-model inference was run. |
 
 The README illustration is a previously visually reviewed **manual prose-reflow** example using synthetic material. It demonstrates normal-weight prose and preserved source math, not live AI formatting quality.
 

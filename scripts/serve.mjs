@@ -2,7 +2,7 @@ import { createServer } from 'node:http';
 import { readFile, stat, realpath } from 'node:fs/promises';
 import { resolve, extname, sep, relative } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { createAiService } from './ai-service.mjs';
+import { createAiService, OLLAMA_TIMEOUT_MS, OLLAMA_METADATA_TIMEOUT_MS } from './ai-service.mjs';
 const types = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.pdf': 'application/pdf', '.png': 'image/png', '.svg': 'image/svg+xml', '.wasm': 'application/wasm', '.bcmap': 'application/octet-stream', '.ttf': 'font/ttf', '.pfb': 'application/octet-stream' };
 
 export function loadOptionalEnv(directory = process.cwd()) {
@@ -13,9 +13,9 @@ export function loadOptionalEnv(directory = process.cwd()) {
   }
 }
 
-export function createWorksheetServer({ prod = false, root = resolve(prod ? 'dist' : '.'), host = 'localhost', env = process.env, fetchImpl = globalThis.fetch, timeoutMs = 120_000 } = {}) {
+export function createWorksheetServer({ prod = false, root = resolve(prod ? 'dist' : '.'), host = 'localhost', env = process.env, fetchImpl = globalThis.fetch, timeoutMs = OLLAMA_TIMEOUT_MS, metadataTimeoutMs = OLLAMA_METADATA_TIMEOUT_MS } = {}) {
   root = resolve(root);
-  const ai = createAiService({ env, host, fetchImpl, timeoutMs });
+  const ai = createAiService({ env, host, fetchImpl, timeoutMs, metadataTimeoutMs });
   return createServer(async (req, res) => {
   try {
     let path = decodeURIComponent(new URL(req.url, 'http://localhost').pathname);

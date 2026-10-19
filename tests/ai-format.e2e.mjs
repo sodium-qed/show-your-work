@@ -8,8 +8,8 @@ import { chromium } from 'playwright';
 import { PDFDocument, PDFName, PDFRef, decodePDFRawStream } from 'pdf-lib';
 import { imageClipIntervals } from './helpers/pdf-inspection.mjs';
 
-// Deterministic API mocks verify the optional AI integration and source-image
-// preservation. No live provider is called and this suite makes no AI-accuracy claim.
+// Deterministic local-helper mocks verify the optional Ollama integration and
+// source-image preservation. No live model runs and this is not an accuracy test.
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const origin = process.env.BASE_URL || 'http://localhost:4173';
 const target = new URL(origin);
@@ -18,7 +18,7 @@ const bundled = process.env.E2E_DIST === '1';
 const mode = offline ? 'standalone-offline' : bundled ? 'bundled-http-mock' : 'source-http-mock';
 const output = resolve(root, process.env.E2E_OUTPUT || (offline ? 'tests/output/ai-offline' : bundled ? 'tests/output/ai-bundled' : 'tests/output/ai'));
 const results = [], errors = [], externalRequests = [];
-const audit = { offline, mocked: !offline, httpRequests: [], workerUrls: [], expectedApiErrors: [] };
+const audit = { offline, mocked: !offline, httpRequests: [], workerUrls: [], expectedApiErrors: [], statusRequests: 0 };
 const apiCalls = [];
 let mockPlan, mockMode = 'success', statusAvailable = true;
 let formatRelease, formatArrived, expectedAbort = false;
@@ -224,7 +224,9 @@ async function mockApi(route) {
   const request = route.request(), path = new URL(request.url()).pathname;
   if (path === '/api/ai/status') {
     assert.equal(request.method(), 'GET');
-    return route.fulfill({ json: { available: statusAvailable, provider: 'OpenAI', model: 'mock-model-e2e' } });
+    audit.statusRequests++;
+    return route.fulfill({ json: { available: statusAvailable, provider: 'Ollama', model: 'mock-local-ollama',
+      ...(!statusAvailable ? { message: 'Ollama is not running. Start Ollama and download the local vision model.' } : {}) } });
   }
   assert.equal(path, '/api/ai/format', 'Only the documented local-helper endpoints are requested.');
   assert.equal(request.method(), 'POST');
@@ -246,13 +248,13 @@ async function mockApi(route) {
   apiCalls.push(call);
   if (mockMode === 'pending') await new Promise(resolve => { formatRelease = resolve; formatArrived?.(); });
   if (mockMode === 'error') {
-    audit.expectedApiErrors.push({ status: 502, message: 'Mock provider unavailable; original work is safe.' });
-    return route.fulfill({ status: 502, json: { error: 'Mock provider unavailable; original work is safe.' } });
+    audit.expectedApiErrors.push({ status: 502, message: 'Mock Ollama unavailable; original work is safe.' });
+    return route.fulfill({ status: 502, json: { error: 'Mock Ollama unavailable; original work is safe.' } });
   }
   const plan = mockMode === 'invalid' ? {
     blocks: [{ kind: 'image', source: 99, rect: { x: 0, y: 0, w: 1, h: 1 }, text: '' }], warnings: [],
   } : mockPlan || fixture.plan;
-  await route.fulfill({ json: { plan, model: 'mock-model-e2e', usage: { inputTokens: 123, outputTokens: 45 } } });
+  await route.fulfill({ json: { plan, model: 'mock-local-ollama', usage: { inputTokens: 123, outputTokens: 45 } } });
 }
 
 function imageBytes(pdf, crop) {
@@ -325,6 +327,16 @@ async function refreshDraft() {
   await page.locator('#ai-refresh').click();
   await page.waitForFunction(() => !document.querySelector('#ai-apply').disabled);
 }
+async function localRuntimeGuidance() {
+  const disclosure = await page.locator('#ai-disclosure').textContent();
+  assert.match(disclosure, /Ollama/i);
+  assert.match(disclosure, /local|computer|device/i);
+  assert.doesNotMatch(disclosure, /OpenAI|charges apply|(?:enter|paste|set|provide).{0,20}API key/i);
+  const setup = await page.locator('#ai-setup').textContent();
+  assert.match(setup, /Ollama/i);
+  assert.match(setup, /qwen3-vl:4b-instruct/);
+  assert.doesNotMatch(setup, /OPENAI_API_KEY|OpenAI/);
+}
 
 let failure, originalExport, formattedExport, originalWhole, originalId, formattedId, approvedDraftHash;
 try {
@@ -341,6 +353,7 @@ try {
       await openAi();
       await page.locator('#ai-setup').waitFor({ state: 'visible' });
       assert.match(await page.locator('#ai-setup').textContent(), /local|helper|server|localhost/i);
+      await localRuntimeGuidance();
       assert.equal(await page.locator('#ai-run').isDisabled(), true);
       assert.equal(await page.locator('#ai-apply').isDisabled(), true);
       assert.equal(await cards().count(), 0);
@@ -365,18 +378,24 @@ try {
       return { pages: exported.pages, exactPreview: exported.pixels, manualRegionCount: 2 };
     });
   } else {
-    await step('Missing-key status keeps manual tools available and a later configured helper can be used', async () => {
+    await step('Missing Ollama runtime keeps manual tools available and a later local model can be used', async () => {
       statusAvailable = false; await fresh(); await upload(fixture.pdf); await selectCrop(fixture.wholeCrop.rect);
       await openAi(null, { available: false });
-      assert.match(await page.locator('#ai-status').textContent(), /OPENAI_API_KEY|key|restart/i);
+      assert.match(await page.locator('#ai-status').textContent(), /Ollama is not running\. Start Ollama/);
+      await localRuntimeGuidance();
       assert.equal(await page.locator('#ai-run').isDisabled(), true); assert.equal(await page.locator('#ai-apply').isDisabled(), true);
       assert.equal(apiCalls.length, 0); await cancelAi();
       await page.locator('#add-problem').click(); await idle(); await count(1);
-      const snapshot = await queueSnapshot(); statusAvailable = true;
-      await openAi(snapshot[0].id); assert.match(await page.locator('#ai-status').textContent(), /mock-model-e2e/);
+      const snapshot = await queueSnapshot();
+      await openAi(snapshot[0].id, { available: false });
+      const checks = audit.statusRequests; statusAvailable = true;
+      await page.locator('#ai-recheck').click();
+      await page.waitForFunction(() => !document.querySelector('#ai-run').disabled);
+      assert.equal(audit.statusRequests, checks + 1, 'Check Ollama again retries status within the same open review dialog.');
+      assert.match(await page.locator('#ai-status').textContent(), /mock-local-ollama/);
       assert.equal(await page.locator('#ai-setup').isVisible(), false); assert.equal(apiCalls.length, 0);
       await cancelAi(); assert.deepEqual(await queueSnapshot(), snapshot);
-      return { unavailableThenAvailable: true, manualCropRetained: true, formatRequests: 0 };
+      return { runtime: 'Ollama', unavailableThenAvailable: true, retriedInSameDialog: true, manualCropRetained: true, formatRequests: 0 };
     });
     await step('One whole selection opens local originals without sending data before Generate', async () => {
       await fresh(); await upload(fixture.pdf); await selectCrop(fixture.wholeCrop.rect);
@@ -406,6 +425,8 @@ try {
       assert.equal(await input.inputValue(), fixture.expectedWording);
       assert.equal(await input.isEditable(), true);
       assert.match(await page.locator('#ai-usage').textContent(), /123/); assert.match(await page.locator('#ai-usage').textContent(), /45/);
+      assert.match(await page.locator('#ai-usage').textContent(), /local|Ollama/i);
+      assert.doesNotMatch(await page.locator('#ai-usage').textContent(), /incurs|charges apply|billing|OpenAI/i);
       const originalHash = await draftHash();
       await input.fill(`${fixture.expectedWording} Check your units before you finish.`);
       assert.equal(await page.locator('#ai-apply').isDisabled(), true, 'Unrendered changes cannot be applied as a clean draft.');
@@ -413,7 +434,7 @@ try {
       await input.fill(fixture.expectedWording); await refreshDraft();
       assert.deepEqual(await draftHash(), originalHash, 'Restoring exact wording restores the draft pixels.');
       approvedDraftHash = originalHash;
-      assert.equal(apiCalls.length, before + 1, 'Local review edits do not make another provider request.');
+      assert.equal(apiCalls.length, before + 1, 'Local review edits do not make another model request.');
       await page.keyboard.press('q'); assert.equal(await cards().count(), 0);
       await page.screenshot({ path: resolve(output, 'ai-dialog.png'), fullPage: true });
       return { mocked: true, providerRequests: 1, draftPages: originalHash.length, editable: true, localRefresh: true };
@@ -474,7 +495,7 @@ try {
         mockMode = mode; await openAi(id); await page.locator('#ai-run').click();
         await page.waitForFunction(mode => {
           const status = document.querySelector('#ai-status').textContent;
-          const matched = mode === 'error' ? status.includes('Mock provider unavailable') : status.includes('Invalid AI layout plan:');
+          const matched = mode === 'error' ? status.includes('Mock Ollama unavailable') : status.includes('Invalid AI layout plan:');
           return matched && document.querySelector('#ai-apply').disabled && !document.querySelector('#ai-run').disabled;
         }, mode);
         assert.deepEqual(await queueSnapshot(), snapshot);
@@ -523,7 +544,7 @@ try {
   failure = error; console.error(error.stack || error);
 } finally {
   await writeFile(resolve(output, 'ai-format-results.json'), JSON.stringify({ passed: !failure, runAt: new Date().toISOString(), origin, mode,
-    mockDisclaimer: 'All provider responses are hand-authored integration mocks. No live AI call or model accuracy assessment was performed.',
+    runtime: 'Ollama', mockDisclaimer: 'All local-model responses are hand-authored integration mocks. No live model execution or accuracy assessment was performed.',
     results, errors, externalRequests, networkAudit: audit, apiCalls,
     ...(failure ? { failure: failure.stack || String(failure) } : {}) }, null, 2));
   await browser?.close(); if (server) server.kill('SIGTERM');

@@ -4,7 +4,7 @@ Local question suggestions propose **crop rectangles**. Review each rectangle ag
 
 ## Optional whole-problem AI formatting
 
-Select the whole problem in one crop, or use **Format with AI** on a saved problem to include its original regions, up to six at once. **Generate with AI** sends the selected images and any saved text to OpenAI through a localhost helper. Fresh PDF crops are sent as images; existing saved text regions can also supply text hints. The proposal separates prose from mathematical or diagram regions without requiring a manual split first.
+Select the whole problem in one crop, or use **Format with AI** on a saved problem to include its original regions, up to six at once. **Generate with AI** passes the selected images and any saved text to Ollama on the same computer through a localhost helper. Fresh PDF crops are sent as images; existing saved text regions can also supply text hints. The proposal separates prose from mathematical or diagram regions without requiring a manual split first.
 
 The app renders proposed prose as normal text and takes image regions from the original content. Review the worksheet PDF beside the originals. **Adjust text or image boundaries** allows text, crop, order, and content-type corrections; **Update preview** rebuilds the PDF locally before **Add problem** or **Replace problem** can apply the edited proposal. Original pixels in an image region do not guarantee that its proposed bounds include every symbol. **Restore original** restores the formatted card's original regions and settings; formatting it again also starts from those original regions.
 
@@ -14,7 +14,9 @@ AI-formatted problems use 100% scale and continuation mode. New problems retain 
 
 Images sent for recognition are local previews limited to a 1,600-pixel longest side and two megapixels, without upscaling. Retained math and diagram regions are cropped from the original PNG pixels, not these smaller previews. Crop boundaries round to source pixels, preserving the crop's original print scale and proportions. No AI-generated mathematical image is used.
 
-AI image input does not require a PDF text layer, but recognition and region selection can be wrong. Live model quality, latency, and cost have not been verified because the recorded checks used no live API key. Mock-response tests verify integration behavior, not model accuracy. See [local AI setup](../README.md#optional-ai-formatting).
+AI image input does not require a PDF text layer, but recognition and region selection can be wrong. Real Ollama inference has not been run in the recorded verification. Mock-response tests verify integration behavior, not model accuracy, speed, or memory requirements. See [local AI setup](../README.md#optional-ai-formatting) for the default Qwen3-VL model and hardware guidance.
+
+The helper checks Ollama's model metadata when the formatter opens and again before each generation. The model must report vision support and no remote-model or remote-host metadata. This check does not generate content or download weights. Metadata checks time out after five seconds; formatting allows one request at a time with a ten-minute limit and no automatic retry.
 
 ## Numbered-question suggestions
 
@@ -53,11 +55,11 @@ The detector intentionally supports ordinary one- and two-column worksheets rath
 
 The last crop may include a footer. A question whose diagram extends above its number or into the adjacent column may need a wider/taller manual crop. An extraction label is only a short navigation aid; it is never substituted for the original page content.
 
-## Local manual tools and networked AI
+## Local manual tools and local AI
 
 Question suggestions and **Reflow selected text** use the existing PDF text layer and local geometry rules. These manual tools need no model, inference API, account, or key. The standalone HTML embeds its PDF libraries and supporting resources and supports the manual workflow offline. Scanned pages without a text layer remain available through manual crops and typed prose.
 
-**Format with AI** is a separate optional OpenAI integration. It requires the localhost helper and a server-side API key. Selected images and text leave the computer when **Generate with AI** is used. Keep the key out of the browser, generated HTML, and repository.
+**Format with AI** is a separate optional local Ollama integration. It requires the localhost app, a running Ollama service, and a downloaded vision model. Selected images and text leave the browser for local processing, but the helper connects only to `http://localhost:11434`, rejects cloud models, and has no remote fallback. No API key is required. Model installation requires an initial download; the weights are not embedded in the standalone HTML.
 
 ## Validation
 

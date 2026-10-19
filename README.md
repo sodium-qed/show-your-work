@@ -2,7 +2,7 @@
 
 A tool that reformats math problems into clean, printable worksheets with space to write solutions 和 show work.
 
-The app, called Margin, turns selected questions into printable worksheets with space for written work. Its manual tools run in a self-contained HTML file. Optional AI formatting runs through a local OpenAI helper: select a whole problem, review the proposed result, and keep equations and diagrams as original image crops. The print preview renders the same PDF bytes used for export.
+The app, called Margin, turns selected questions into printable worksheets with space for written work. Its manual tools run in a self-contained HTML file. Optional AI formatting uses an open-source vision model through Ollama on the same computer: select a whole problem, review the proposed result, and keep equations and diagrams as original image crops. The print preview renders the same PDF bytes used for export.
 
 ## Open the HTML file
 
@@ -14,7 +14,7 @@ The root `index.html` and `margin.html` are identical, committed standalone file
 
 ## Run locally or rebuild
 
-The local server, optional AI helper, and build tools require Node.js 22 or later and npm. From the source project directory:
+The local server, optional AI helper, and build tools require Node.js 22 or later and npm. Download and extract the repository, then open a terminal in its source folder containing `package.json`:
 
 ```bash
 npm ci
@@ -42,25 +42,38 @@ The server binds to `localhost` by default. `PORT` and `HOST` can override the l
 
 ## Optional AI formatting
 
-Copy `.env.example` to `.env` in the project directory and set the server's API key:
+Install a current release of [Ollama for Windows, macOS, or Linux](https://ollama.com/download) and keep its app or service running. The default model requires **Ollama 0.12.7 or later**. In a terminal, download it once:
 
-```dotenv
-OPENAI_API_KEY=your_openai_api_key
-# Optional; this is the default model:
-OPENAI_MODEL=gpt-5.6-terra
+```bash
+ollama pull qwen3-vl:4b-instruct
 ```
 
-Keep `.env` out of commits. The key belongs only in the local helper's environment, never in HTML, browser storage, or client code; see OpenAI's [API key guidance](https://developers.openai.com/api/reference/overview#authentication). Start or restart `npm start` after changing these values, then open [http://localhost:4173](http://localhost:4173). The standalone HTML and static hosted copy show local setup instructions and retain the manual tools without a key.
+Then, from the project directory:
+
+```bash
+npm ci
+npm start
+```
+
+Open [http://localhost:4173](http://localhost:4173). The default setup needs **no API key, account, or `.env` file**, and local generation has no per-request service fee. The downloaded HTML and static hosted copy retain the manual tools and show instructions for running AI locally.
+
+If Ollama is stopped, open its app or run `ollama serve` in another terminal, then choose **Check Ollama again** in the formatter. The first generation loads the model and may take several minutes. The app does not download models automatically.
+
+The default [Qwen3-VL 4B Instruct model](https://ollama.com/library/qwen3-vl:4b-instruct) is Apache 2.0 licensed. Its Q4_K_M download is approximately **3.3 GB**, separate from the HTML file. Runtime memory use exceeds the model's file size. A computer with **16 GB RAM** is a practical starting budget for this app, not an official minimum or a performance guarantee. CPU generation can be slow; a compatible GPU can help. Initial software/model downloads require internet access; formatting uses the downloaded model locally.
+
+For an optional model override, copy `.env.example` to `.env`, set `OLLAMA_MODEL` to another downloaded local vision model, and restart `npm start`. Text-only and cloud models are not supported. The helper connects only to `http://localhost:11434`; it has no remote endpoint option or cloud fallback.
+
+To disable Ollama's own cloud features as well, set `OLLAMA_NO_CLOUD=1` for the **Ollama process**, then restart Ollama. Follow the [official environment-variable instructions for the operating system](https://docs.ollama.com/faq#how-do-i-configure-ollama-server). Setting a value only in this project's `.env` does not configure a separately running Ollama app or service. The [Ollama FAQ](https://docs.ollama.com/faq#how-do-i-disable-ollamas-cloud-features) documents this local-only setting.
 
 1. Select a crop containing the **whole problem**, or use **Format with AI** on an existing problem card to include its original regions, up to six at once.
-2. Choose **Generate with AI** to send the selected images and any saved text through the local helper to OpenAI. Review the original beside the proposed worksheet PDF, which includes other queued problems and their writing space.
+2. Choose **Generate with AI** to process the selected images and any saved text through the local helper and Ollama on this computer. Review the original beside the proposed worksheet PDF, which includes other queued problems and their writing space.
 3. If needed, open **Adjust text or image boundaries**, correct the proposal, and choose **Update preview**. These edits and preview updates stay local. Choose **Add problem** or **Replace problem** only after reviewing the result.
 
 Formatting uses **100%** scale and **Continue onto next page**, keeping the writing-height and page-break defaults for a new problem or the existing values for a replacement. Equations and diagrams are cropped from the original pixels, without generating replacement images. **Restore original** on a formatted card restores its original regions and settings. Reformatting that card starts from those original regions again.
 
-The AI proposes the separation of prose and mathematical content, so the workflow does not require manually splitting each part first. Check wording, symbols, missing content, and crop boundaries before applying the proposal. Cancel leaves the worksheet unchanged; another **Generate again** request can incur another API charge.
+The AI proposes the separation of prose and mathematical content, so the workflow does not require manually splitting each part first. Check wording, symbols, missing content, and crop boundaries before applying the proposal. Cancel leaves the worksheet unchanged. **Generate again** runs another local inference.
 
-API usage is [billed separately from a ChatGPT subscription](https://help.openai.com/en/articles/9039756-managing-billing-for-chatgpt-and-the-api-platform). On October 19, 2026, [GPT-5.6 Terra's listed rates](https://developers.openai.com/api/docs/models/gpt-5.6-terra) were **$2 per million input tokens** and **$12 per million output tokens**. A hypothetical request with 3,000 input tokens and 1,000 output tokens costs **$0.018**, without assuming caching. This is not a measured per-problem price: image input and reasoning tokens affect usage. Live inference quality, latency, and cost have not been measured in the recorded verification; mock responses exercise the integration only.
+Real Ollama inference has not been run in the recorded verification. Mock responses check the integration, not the model's transcription accuracy, speed, or hardware requirements.
 
 ## Worksheet workflow
 
@@ -134,9 +147,7 @@ Manual selection, reviewed text, and numbered-question suggestions need no AI se
 
 Manual work is processed in the browser. Only the preferences described above are stored in `localStorage`; source files, crop images, and problem text are not saved there. The standalone HTML embeds PDF.js, pdf-lib, and their runtime assets, so manual use needs no CDN, remote font, external script, or server request. The static hosted copy uses the same local manual processing.
 
-**Generate with AI** sends the selected images and text to OpenAI through the localhost helper. This is the optional networked path; its API key stays on the server. Opening a source or using manual crop/reflow tools does not request AI formatting. Review the selected content before generating, and use the manual workflow for content that should remain local.
-
-The helper uses the Responses API with `store: false`. This does not guarantee zero retention: OpenAI's [API data controls](https://developers.openai.com/api/docs/guides/your-data) describe abuse-monitoring retention and other applicable exceptions.
+**Generate with AI** passes the selected images and text from the browser to the localhost helper, then to the locally installed Ollama model. The helper accepts local vision models only, rejects cloud-model metadata, and has no cloud fallback. Source files are not uploaded to a remote inference service. Opening a source or using manual crop/reflow tools does not request AI formatting.
 
 Installing development dependencies with `npm ci` requires access to the npm registry unless the packages are already cached. This installation step applies to source development and rebuilding, not to opening the downloaded HTML.
 
@@ -145,8 +156,9 @@ The application uses:
 - [`pdfjs-dist`](https://github.com/mozilla/pdf.js) to render source documents and the generated preview, and to read PDF text layers for suggestions.
 - [`pdf-lib`](https://github.com/Hopding/pdf-lib) to assemble exported PDFs.
 - [`playwright`](https://playwright.dev/) for browser integration checks.
+- [Ollama](https://ollama.com/) and the separately downloaded Qwen3-VL model for optional local AI formatting.
 
-Dependency versions are pinned in `package.json` and `package-lock.json`.
+The npm dependency versions are pinned in `package.json` and `package-lock.json`.
 
 ## Source map
 
@@ -161,7 +173,8 @@ Dependency versions are pinned in `package.json` and `package-lock.json`.
 | `src/detection.js` | Conservative suggestions from numbered PDF text |
 | `src/text-extraction.js` | A reviewable prose draft from selected PDF text, with boundary and reading-order warnings |
 | `src/ai-plan.js` | Shared AI proposal schema, prompt, and structural/bounds validation |
-| `scripts/ai-service.mjs` | Local OpenAI helper with server-only credentials and validated requests/responses |
+| `scripts/ai-service.mjs` | Local Ollama helper with model checks and validated requests/responses |
+| `scripts/check-local-ai.mjs` | Opt-in real-model smoke check using a synthetic sample |
 | `scripts/serve.mjs` | Local development and build-preview server, including the optional AI endpoints |
 | `scripts/build.mjs` | Rebuilds standalone HTML for download and static hosting |
 | `scripts/build-html.mjs` | Packages the source modules, PDF libraries, worker, resources, sample, and license notices into standalone HTML |
@@ -179,6 +192,8 @@ npm run test:ai
 ```
 
 Browser checks require a compatible Playwright Chromium installation. See [testing notes](docs/testing.md) for setup, coverage, and recorded results. Source extraction behavior and limits are documented in [extraction notes](docs/extraction.md).
+
+With Ollama running and the model already installed, `npm run test:ai:local` makes one real local request using a synthetic sample. It saves a validated plan on success and never downloads a model automatically. This checks the connection and response structure, not transcription quality.
 
 ## License
 
