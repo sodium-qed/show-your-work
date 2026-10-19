@@ -33,6 +33,7 @@ const modules = {
   worker: pack(worker),
   layout: await base64('src/layout.js'),
   detection: await base64('src/detection.js'),
+  textExtraction: await base64('src/text-extraction.js'),
   preferences: await base64('src/preferences.js'),
   engine: await base64('src/pdf-engine.js'),
   app: await base64('src/app.js'),
@@ -52,6 +53,7 @@ try {
   const pdfjsURL = moduleURL(decode(payload.modules.pdfjs));
   const layoutURL = moduleURL(decode(payload.modules.layout));
   const detectionURL = moduleURL(decode(payload.modules.detection));
+  const textExtractionURL = moduleURL(decode(payload.modules.textExtraction));
   const preferencesURL = moduleURL(decode(payload.modules.preferences));
   const workerPrefix = 'const marginAssets = ' + JSON.stringify(payload.assets) + ';\n' +
     'function marginReadAsset(url) { if (typeof url !== "string" || !url.startsWith("margin-asset:/")) return null; const key=url.slice("margin-asset:/".length); const encoded=marginAssets[key]; if (!encoded) throw new Error("Missing embedded PDF resource: "+key); return Uint8Array.from(atob(encoded), c=>c.charCodeAt(0)); }\n' +
@@ -62,7 +64,8 @@ try {
   const engineURL = moduleURL(decode(payload.modules.engine)
     .replace("'/vendor/pdfjs/build/pdf.mjs'", JSON.stringify(pdfjsURL))
     .replace("'./layout.js'", JSON.stringify(layoutURL))
-    .replace("'./detection.js'", JSON.stringify(detectionURL)));
+    .replace("'./detection.js'", JSON.stringify(detectionURL))
+    .replace("'./text-extraction.js'", JSON.stringify(textExtractionURL)));
   const appURL = moduleURL(decode(payload.modules.app)
     .replace("'./pdf-engine.js'", JSON.stringify(engineURL))
     .replace("'./layout.js'", JSON.stringify(layoutURL))

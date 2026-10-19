@@ -1,8 +1,8 @@
-# Question extraction
+# Question suggestions and prose extraction
 
-The app suggests **crop rectangles**, not rewritten mathematics. Review each rectangle against the source page before adding it. The rendered source crop supplies the question's visible content, including equations and diagrams. A good number match does not prove that a crop contains the whole question.
+Question suggestions propose **crop rectangles**. Review each rectangle against the source page before adding it. Source crops remain the default and preserve visible content, including the original fonts, boldness, line breaks, equations, and diagrams. A good number match does not prove that a crop contains the whole question. Optional prose reflow uses a separate text-review workflow.
 
-## What is implemented
+## Numbered-question suggestions
 
 For PDFs with a usable text layer, `detectQuestions(items, pageWidth, pageHeight)` consumes positioned text runs from PDF.js. PDF.js exposes text content, dimensions, and transformation matrices; it does not supply a worksheet-specific question model. See the [PDF.js TextItem API](https://mozilla.github.io/pdf.js/api/draft/module-pdfjsLib.html#~TextItem) and [PDFPageProxy.getTextContent](https://mozilla.github.io/pdf.js/api/draft/module-pdfjsLib-PDFPageProxy.html#getTextContent).
 
@@ -17,6 +17,20 @@ The local heuristic:
 
 No OCR, model inference, external API, API key, or file upload is used for this detection. Image imports and image-only scanned PDFs receive no automatic suggestions. A scanned PDF that already contains an OCR text layer may produce suggestions from that existing layer; its recognition errors still need review.
 
+## Reflow selected prose
+
+Select only prose directions and choose **Reflow selected text**. For a PDF with usable text, the selected area's text layer supplies an editable draft. Review the words, symbols, punctuation, and reading order, choose **New problem** or **Append to selected problem**, then confirm with **Add problem** or **Append text**. The reviewed draft becomes normal-weight text wrapped to the current paper's printable width before card scaling, without copying the source paragraph's boldness and fixed line wraps. **Edit text** reopens a saved text region, and **Save text** confirms its changes.
+
+`extractRegionText(items, rect)` reads selected runs row by row, from top to bottom and left to right, and joins ordinary line wraps. A run with at least half its box inside the selection is retained whole; individual characters cannot be clipped reliably from its box. Boundary cuts, possible columns, mixed baselines, and line-end hyphens produce review warnings. Exact duplicate runs are removed, and explicit hyphens are kept rather than silently corrected.
+
+A new reflowed problem uses 100% scale and continuation mode, retaining the remembered writing-height and page-break defaults. Appending and editing preserve the existing problem's settings, so check its scale before judging the result. Ordinary pasted-text problems keep the usual inherited defaults. Images and scans with no usable text open a blank review dialog for manual entry and do not run OCR.
+
+Text is rendered when saved. Later paper or margin changes do not automatically rewrap that image; use **Edit text** and **Save text** to regenerate it for the new printable width.
+
+Keep equations and diagrams as source crops. After adding the prose, select the original mathematical content and press **Q** to append it to the same problem. Existing source crops are not automatically rewritten or removed. Remove or recrop any duplicate directions after checking the replacement.
+
+This is plain-text reflow, not mathematical interpretation or typesetting. PDF text layers can omit symbols, separate superscripts from their bases, or return columns in the wrong order. A selectable text layer does not guarantee correct extraction. Review against the source, and retain complex notation as an image crop. Exported text regions are raster images, even though their text remains editable during the current session.
+
 ## Review and manual fallback
 
 Drag a manual crop when no useful suggestions appear. Adjust crop bounds to include a whole graph, fraction, radical, prompt, and required subparts. Remove unrelated headings, neighboring questions, footers, and excess answer space. For a question spanning pages, collect the required regions into one question. Check their order in the output preview.
@@ -27,8 +41,10 @@ The last crop may include a footer. A question whose diagram extends above its n
 
 ## No AI or OCR dependency
 
-Question suggestions use only the existing PDF text layer and local geometry rules. No model, inference API, account, token, or AI download is present. The standalone HTML embeds its PDF libraries and supporting resources, and works offline after download. Scanned pages without a text layer remain available through manual selection.
+Question suggestions and prose extraction use only the existing PDF text layer and local geometry rules. No model, inference API, account, token, or AI download is present. The standalone HTML embeds its PDF libraries and supporting resources, and works offline after download. Scanned pages without a text layer remain available through manual crops and typed prose.
 
 ## Validation
 
 Run `node --test tests/detection.test.mjs`. The tests cover standard labels, split PDF runs, two-column geometry, subparts, inline references, decimals, duplicate text, invalid inputs, crop bounds, and coordinate scaling. An integration test extracts actual PDF.js text from the bundled sample: its three native pages yield 3, 4, and 2 suggestions, and its image-only scan yields none. These tests validate behavior on known examples, not a general extraction accuracy rate. Real source pages and every suggested crop still require visual review.
+
+The prose extractor has a separate suite at `tests/text-extraction.test.mjs`, included in `npm test`; `npm run test:text` exercises the review-to-export workflow in a browser. Both source and offline prose suites passed eight stages, including reviewed extraction, editing, mixed text/image questions, continuation, and manual scan/image entry. Each run checked seven exported pages against the preview, with zero HTTP/HTTPS requests in the offline run. See [testing notes](testing.md) for current results and limits.

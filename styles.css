@@ -310,6 +310,10 @@ dialog::backdrop { background: #17231c66; }
 .dialog-heading h2 { font-size: 22px; }
 dialog p { color: var(--muted); font-size: 12px; line-height: 1.7; }
 dialog textarea { width: 100%; resize: vertical; line-height: 1.6; }
+#problem-text { font-family: Arial, Helvetica, sans-serif; font-weight: 400; }
+#text-target-row { margin-top: 12px; }
+#text-target { width: 100%; }
+.reflow-hint { margin: 10px 0 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
 .guide { padding-left: 22px; font-size: 13px; line-height: 1.7; }
 .guide li { padding: 7px 0 7px 5px; }

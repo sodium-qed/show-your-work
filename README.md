@@ -8,7 +8,7 @@ The app, called Margin, is an AI-free math worksheet studio packaged as a self-c
 
 Download [`margin.html`](https://github.com/sodium-qed/show-your-work/raw/refs/heads/main/margin.html) (or open its GitHub file page and click **Download raw file**), then double-click it or use **Open file** in a supported modern Chromium browser, such as Chrome or Edge. The hosted copy also offers an **HTML file** download button. The downloaded file runs offline through `file://`. No installation, local server, account, API key, or internet connection is needed to use it.
 
-The HTML is approximately **7.71 MiB** and embeds the application, PDF libraries, PDF worker, standard fonts, character maps, WebAssembly assets, and sample PDF. Keep the complete file when copying it to another computer.
+The HTML is approximately **7.73 MiB** and embeds the application, PDF libraries, PDF worker, standard fonts, character maps, WebAssembly assets, and sample PDF. Keep the complete file when copying it to another computer.
 
 The root `index.html` and `margin.html` are identical, committed standalone files. `src/index.html` is the development template. Builds regenerate both root files and their identical copies in `dist/`. The root is also ready for static hosting, including GitHub Pages; enabling Pages is a separate repository setting. No hosted GitHub Pages URL is assumed in this README.
 
@@ -55,10 +55,6 @@ Requested writing space is adjustable from 0 to 10 inches in quarter-inch steps.
 
 **Page spacing** defaults to **Balanced**. After pagination, it shares spare page room evenly below complete problems, using the requested writing height as a minimum. It does not change crop size, proportions, or page count. **Compact** keeps the requested writing height exactly and leaves unused room at the bottom. The card field is labeled **Minimum space** in Balanced and **Writing space** in Compact. Pages containing a problem that continues across pages keep exact spacing in either mode.
 
-![Worksheet with balanced spacing](docs/worksheet-preview.png)
-
-*Preserved source crops with blank areas for written work.*
-
 **Centered** places all questions in one shared column, sized from the widest final crop in the worksheet. Every crop uses the same left edge, including narrower questions and continuation parts; crops keep their own sizes and are never stretched to fill the column. **Left aligned** places that shared edge at the page margin. Whitespace inside each crop remains part of the image, so tighten the manual crop if the visible text still starts unevenly.
 
 Original numbers inside source crops remain visible. **Add worksheet numbers** is off by default, so the app adds no initial question label or reserved label space. Continuation pages use the neutral label **Continued**. Enable the checkbox to add sequential worksheet numbers; these are additional labels and never erase numbers already present in a crop.
@@ -74,6 +70,24 @@ Shortcuts are inactive while typing in a field, a dialog is open, processing is 
 
 Ordinary problems stay together when their content and requested writing space fit a page. Larger problems continue onto subsequent pages with the requested writing height preserved exactly. **Fit to one page** shrinks question content when the requested writing space leaves enough room; it cannot make writing space longer than the usable page height fit on one page. Balanced spacing is applied afterward. Inspect the result for readability.
 
+## Reflow dense directions
+
+A source crop is an image: it keeps the original boldness, line breaks, and spacing inside the paragraph. **Page spacing** changes the blank room outside that image. To reformat prose directions:
+
+1. Draw a new selection around only the directions on a PDF page and choose **Reflow selected text**.
+2. Review and edit the extracted words, symbols, and reading order. Choose **New problem** or **Append to selected problem**, then confirm with **Add problem** or **Append text**.
+3. Keep that problem selected, crop the original equation or diagram, and press **Q** to append it. The mathematical notation remains in its source image.
+
+![Worksheet with reflowed directions and an original equation and graph](docs/worksheet-preview.png)
+
+*Reviewed, normal-weight directions with the original equation and graph preserved.*
+
+The prose uses normal-weight text and wraps to the current paper's printable width when saved, before the problem's scale is applied. A new reflowed problem starts at **100%** with **Continue onto next page**, keeping the remembered writing-height and page-break defaults. Appending or reopening a saved region with **Edit text** keeps the existing card's settings, including its scale; **Save text** confirms an edit. Ordinary pasted-text problems inherit all new-problem defaults.
+
+Changing paper size or margins does not automatically rewrap saved text. Use **Edit text**, then **Save text**, to regenerate it at the new printable width.
+
+Reflow uses an existing PDF text layer, with no AI or OCR. For images and scans without usable text, type the directions into the text dialog. This is not automatic mathematics typesetting: keep fractions, superscripts, equations, and diagrams as crops when their layout matters. Reflow does not remove prose already inside another crop; remove or recrop duplicate directions after reviewing the replacement.
+
 ## Remembered settings
 
 Changing a problem's writing height, scale, overflow mode, or page-break setting remembers that field as the default for future problems, including suggested and pasted-text problems. The worksheet title, paper, margins, name/date line, **Page spacing**, alignment, and **Add worksheet numbers** choice are also remembered across refreshes in this browser's `localStorage`, when available. The settings status shows the next-problem defaults and whether they were saved on this device. On desktop, worksheet settings remain visible while the problem list scrolls.
@@ -82,17 +96,17 @@ Changing a problem's writing height, scale, overflow mode, or page-break setting
 
 ## Supported content and limits
 
-- **Text PDFs and scanned PDFs:** manual crops preserve the visible notation, diagrams, and layout. Only PDFs with a usable text layer can produce numbered-question suggestions.
+- **Text PDFs and scanned PDFs:** manual crops preserve the visible notation, diagrams, and layout. Numbered-question suggestions and prose extraction require a usable existing PDF text layer.
 - **Images:** PNG, JPEG, and WebP are supported. Standalone images are treated as 300 dpi and constrained to Letter content width before worksheet scaling.
-- **Pasted text:** plain text, line breaks, and Unicode math are rendered with available system fonts. This is not a LaTeX, MathML, or equation parser. Use an image or PDF for typeset fractions, complex notation, or diagrams. Glyph coverage depends on the browser's fonts.
-- **Size limits:** 50 MB per file, 500 pages per imported PDF, and 50 megapixels per image. Generated worksheets are also limited to 500 pages. Password-protected PDFs must be unlocked before import. Pasted text is limited to 6,000 characters in the interface and may need splitting if the rendered result is too large. Image dimensions are checked after browser decoding, so very large inputs can still require substantial memory.
-- **Raster export:** selected regions and pasted problem text are embedded as PNG images. Continuation pages clip and reuse the same embedded crop instead of resampling separate slices. The original question text is not retained as selectable or searchable PDF text. Worksheet labels and page numbers remain PDF text.
+- **Pasted and reflowed text:** reviewed plain text, paragraph breaks, and Unicode symbols are rendered with available system fonts. This is not a LaTeX, MathML, or equation parser. Use an image or PDF crop for typeset fractions, complex notation, or diagrams. Glyph coverage depends on the browser's fonts.
+- **Size limits:** 50 MB per file, 500 pages per imported PDF, and 50 megapixels per image. Generated worksheets are also limited to 500 pages. Password-protected PDFs must be unlocked before import. Text entry is limited to 6,000 characters in the interface and may need splitting if the rendered result is too large. Image dimensions are checked after browser decoding, so very large inputs can still require substantial memory.
+- **Raster export:** source crops and text regions are embedded as PNG images. Continuation pages clip and reuse the same embedded crop instead of resampling separate slices. Question content, including reviewed prose, is not retained as selectable or searchable PDF text. Worksheet labels and page numbers remain PDF text.
 - **Print quality:** crops target 300 dpi, subject to a 20 million pixel and 14,000 pixel side limit. Low-resolution source material cannot gain detail through enlargement. Large crops may use a lower rendering resolution. Warnings use the estimated resolution at the final print size, including available scan-image density and enlargement; inspect the actual source for sharpness.
 - **Large previews:** screen previews share a 48 million pixel budget. Very long worksheets therefore display at a lower preview resolution with a notice. This changes only the on-screen rendering, not the exported PDF's crop resolution.
 - **Oversized crops:** the layout prefers whitespace when splitting a tall crop across pages, but may cut through content when no suitable whitespace is available. Split the source into smaller regions, reduce scale, or use **Fit to one page** as appropriate.
 - **Session lifetime:** imported sources, selections, and problem cards are held in memory and cleared on refresh or tab closure. Only worksheet preferences and defaults are saved locally. There is no project save/reopen format.
 
-There is no AI model, AI service, or OCR implementation. Manual selection and ordinary text-layer rules provide the complete workflow, including PDF export. Scans without an existing text layer use manual selection.
+There is no AI model, AI service, or OCR implementation. Manual selection, reviewed text, and ordinary text-layer rules provide the complete workflow, including PDF export. Scans without an existing text layer use manual crops or manually typed prose.
 
 ## Privacy and dependencies
 
@@ -119,6 +133,7 @@ Dependency versions are pinned in `package.json` and `package-lock.json`.
 | `src/pdf-engine.js` | Source loading, canvas rendering, cropped assets, text rendering, PDF export, and preview rendering |
 | `src/layout.js` | Page layout and writing-space allocation in PDF points |
 | `src/detection.js` | Conservative suggestions from numbered PDF text |
+| `src/text-extraction.js` | A reviewable prose draft from selected PDF text, with boundary and reading-order warnings |
 | `scripts/serve.mjs` | Local static development and build-preview server |
 | `scripts/build.mjs` | Rebuilds standalone HTML for download and static hosting |
 | `scripts/build-html.mjs` | Packages the source modules, PDF libraries, worker, resources, sample, and license notices into standalone HTML |
@@ -131,6 +146,7 @@ Dependency versions are pinned in `package.json` and `package-lock.json`.
 npm test
 npm run test:e2e
 npm run test:ui
+npm run test:text
 ```
 
 Browser checks require a compatible Playwright Chromium installation. See [testing notes](docs/testing.md) for setup, coverage, and recorded results. Source extraction behavior and limits are documented in [extraction notes](docs/extraction.md).

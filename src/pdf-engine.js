@@ -1,6 +1,7 @@
 import * as pdfjs from '/vendor/pdfjs/build/pdf.mjs';
 import { planWorksheet } from './layout.js';
 import { detectQuestions } from './detection.js';
+import { extractRegionText } from './text-extraction.js';
 
 pdfjs.GlobalWorkerOptions.workerSrc = globalThis.MARGIN_EMBEDDED?.workerURL || '/vendor/pdfjs/build/pdf.worker.mjs';
 const pdfOptions = {
@@ -170,13 +171,10 @@ export async function renderSource(source, pageNumber, target, cssWidth = 800) {
   }
 }
 
-export async function suggestions(source, pageNumber) {
-  assertSource(source, pageNumber);
-  if (source.kind !== 'pdf') return [];
-  const { page, width, height } = await pageInfo(source, pageNumber);
+async function pageTextItems(page) {
   const viewport = page.getViewport({ scale: 1 });
   const data = await page.getTextContent();
-  const items = data.items.filter(item => typeof item.str === 'string' && item.str.trim()).map(item => {
+  return data.items.filter(item => typeof item.str === 'string' && item.str.trim()).map(item => {
     const t = pdfjs.Util.transform(viewport.transform, item.transform);
     const style = data.styles[item.fontName] || {};
     const angle = Math.atan2(t[1], t[0]) + (style.vertical ? Math.PI / 2 : 0);
@@ -189,7 +187,37 @@ export async function suggestions(source, pageNumber) {
     const xs = corners.map(p => p[0]), ys = corners.map(p => p[1]);
     return { text: item.str, x: Math.min(...xs), y: Math.min(...ys), w: Math.max(...xs) - Math.min(...xs), h: Math.max(...ys) - Math.min(...ys) };
   });
-  return detectQuestions(items, width, height);
+}
+
+export async function suggestions(source, pageNumber) {
+  assertSource(source, pageNumber);
+  if (source.kind !== 'pdf') return [];
+  const { page, width, height } = await pageInfo(source, pageNumber);
+  return detectQuestions(await pageTextItems(page), width, height);
+}
+
+/** Extract only the PDF text layer; callers must let the user review the wording. */
+export async function selectedText(source, pageNumber, inputRect) {
+  assertSource(source, pageNumber);
+  const rect = boundedRect(inputRect);
+  const manualEntry = 'Type or paste the wording manually. This tool does not perform OCR.';
+  if (source.kind !== 'pdf') {
+    return { text: '', warnings: [`Images do not have a selectable PDF text layer. ${manualEntry}`] };
+  }
+  const { page, width, height } = await pageInfo(source, pageNumber);
+  let items;
+  try {
+    items = await pageTextItems(page);
+  } catch {
+    assertSource(source, pageNumber);
+    return { text: '', warnings: [`The PDF text layer could not be read. ${manualEntry}`] };
+  }
+  assertSource(source, pageNumber);
+  const result = extractRegionText(items, { x: rect.x * width, y: rect.y * height, w: rect.w * width, h: rect.h * height });
+  if (!result.text.trim()) {
+    return { text: '', warnings: [...new Set([...result.warnings, manualEntry])] };
+  }
+  return result;
 }
 
 function boundedRect(rect) {

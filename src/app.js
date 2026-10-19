@@ -1,5 +1,5 @@
-import { uid, loadSource, pageInfo, renderSource, suggestions, cropRegion, textRegion, createWorksheet, renderPreview } from './pdf-engine.js';
-import { normalizeRect } from './layout.js';
+import { uid, loadSource, pageInfo, renderSource, suggestions, selectedText, cropRegion, textRegion, createWorksheet, renderPreview } from './pdf-engine.js';
+import { normalizeRect, PAPER } from './layout.js';
 import { DEFAULT_SETTINGS, DEFAULT_PROBLEM, loadPreferences, savePreferences } from './preferences.js';
 
 const $ = selector => document.querySelector(selector);
@@ -8,6 +8,7 @@ const state = { sources: [], sourceId: null, page: 1, problems: [], selected: nu
 const source = () => state.sources.find(s => s.id === state.sourceId);
 const selected = () => state.problems.find(p => p.id === state.selected);
 const escape = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+let textEditor = null;
 const settings = () => ({ title: $('#worksheet-title').value, paper: $('#paper-size').value, margin: Number($('#page-margin').value), nameLine: $('#name-line').checked, alignment: $('#question-alignment').value, spacing: $('#page-spacing').value, numbering: $('#number-problems').checked });
 function applyWorksheetSettings(value) {
   $('#worksheet-title').value = value.title;
@@ -85,6 +86,7 @@ function renderCropEditor() {
   for(const field of ['x','y','w','h']) $(`#crop-${field}`).value=(c.rect[field]*100).toFixed(1);
   $('#update-region').hidden=!c.regionId;
   $('#add-problem').hidden=!!c.regionId; $('#append-region').hidden=!!c.regionId;
+  $('#reflow-text').hidden=!!c.regionId;
   updateButtons();
 }
 function syncSuggestion() {
@@ -101,7 +103,7 @@ function renderQueue() {
   $('#empty-queue').hidden=!!state.problems.length;
   $('#problem-list').innerHTML=state.problems.map((p,i)=>`<li class="problem-card${p.id===state.selected?' selected':''}" data-id="${p.id}" tabindex="0" aria-label="Problem ${i+1}">
     <div class="card-head"><div class="card-label"><span class="problem-number">${String(i+1).padStart(2,'0')}</span>Problem ${i+1}<span class="quiet">${p.regions.length>1?`${p.regions.length} parts`:''}</span></div><div class="card-actions"><button class="icon-button" data-action="up" aria-label="Move problem ${i+1} up" ${i===0?'disabled':''}>↑</button><button class="icon-button" data-action="down" aria-label="Move problem ${i+1} down" ${i===state.problems.length-1?'disabled':''}>↓</button><button class="icon-button" data-action="remove" aria-label="Remove problem ${i+1}">×</button></div></div>
-    <div class="region-list">${p.regions.map((r,ri)=>`<div class="region-thumb"><img src="${r.thumbnail}" alt="Problem ${i+1}, region ${ri+1}"><div class="region-caption"><span title="${escape(r.sourceName)}">${escape(r.sourceName)}${r.sourceId?` · p. ${r.page}`:''}</span><div class="region-actions">${r.sourceId?`<button data-action="edit-region" data-region="${r.id}" aria-label="Edit region ${ri+1} of problem ${i+1}">Crop</button>`:''}${p.regions.length>1?`<button data-action="region-up" data-region="${r.id}" aria-label="Move region ${ri+1} up" ${ri===0?'disabled':''}>↑</button><button data-action="region-down" data-region="${r.id}" aria-label="Move region ${ri+1} down" ${ri===p.regions.length-1?'disabled':''}>↓</button>`:''}<button data-action="remove-region" data-region="${r.id}" aria-label="Remove region ${ri+1} of problem ${i+1}">×</button></div></div></div>`).join('')}</div>
+    <div class="region-list">${p.regions.map((r,ri)=>`<div class="region-thumb"><img src="${r.thumbnail}" alt="Problem ${i+1}, region ${ri+1}"><div class="region-caption"><span title="${escape(r.sourceName)}">${escape(r.sourceName)}${r.sourceId?` · p. ${r.page}`:''}</span><div class="region-actions">${r.sourceId?`<button data-action="edit-region" data-region="${r.id}" aria-label="Edit region ${ri+1} of problem ${i+1}">Crop</button>`:''}${typeof r.text==='string'?`<button data-action="edit-text" data-region="${r.id}" aria-label="Edit text in region ${ri+1} of problem ${i+1}">Edit text</button>`:''}${p.regions.length>1?`<button data-action="region-up" data-region="${r.id}" aria-label="Move region ${ri+1} up" ${ri===0?'disabled':''}>↑</button><button data-action="region-down" data-region="${r.id}" aria-label="Move region ${ri+1} down" ${ri===p.regions.length-1?'disabled':''}>↓</button>`:''}<button data-action="remove-region" data-region="${r.id}" aria-label="Remove region ${ri+1} of problem ${i+1}">×</button></div></div></div>`).join('')}</div>
     <div class="problem-controls"><label>${settings().spacing === 'compact' ? 'Writing space' : 'Minimum space'} (in)<input type="number" data-field="space" min="0" max="10" step="0.25" value="${+(p.space/72).toFixed(3)}"></label><label>Question size (%)<input type="number" data-field="scale" min="25" max="200" step="5" value="${p.scale}"></label><label class="wide">Oversized problem<select data-field="fit"><option value="flow"${p.fit==='flow'?' selected':''}>Continue onto next page</option><option value="shrink"${p.fit==='shrink'?' selected':''}>Fit to one page (shrink question)</option></select></label></div>
     <p class="scale-hint${p.scale<70?' small-print':''}">${p.scale<70?`${p.scale}% can make source text very small.`:'100% keeps the original print size.'}${p.scale!==100?' <button class="reset-scale" data-action="reset-scale">Reset to 100%</button>':''}</p>
     <label class="check-label"><input type="checkbox" data-field="pageBreak" ${p.pageBreak?'checked':''}> Start on a new page</label>${p.id===state.selected?'<p class="selected-hint">Selected · new regions can be appended to this problem.</p>':''}
@@ -224,6 +226,7 @@ $('#problem-list').addEventListener('click',async e=>{
   const action=btn.dataset.action;
   if(action==='reset-scale'){p.scale=100;state.defaults.scale=100;rememberSettings();dirty();renderQueue();return;}
   if(action==='edit-region'){await editRegion(p,btn.dataset.region);return;}
+  if(action==='edit-text'){const r=p.regions.find(r=>r.id===btn.dataset.region);if(typeof r?.text==='string'){renderQueue();openTextEditor({text:r.text,problemId:p.id,regionId:r.id});}return;}
   if(action==='up'||action==='down'){const j=index+(action==='up'?-1:1);if(j>=0&&j<state.problems.length)[state.problems[index],state.problems[j]]=[state.problems[j],state.problems[index]];}
   if(action==='remove')state.problems.splice(index,1);
   if(action==='remove-region'){p.regions=p.regions.filter(r=>r.id!==btn.dataset.region);if(!p.regions.length)state.problems.splice(index,1);}
@@ -248,10 +251,82 @@ $('#reset-preferences').addEventListener('click',()=>{
   state.defaults={...DEFAULT_PROBLEM};applyWorksheetSettings(DEFAULT_SETTINGS);rememberSettings();dirty();renderQueue();
   tell('Saved settings reset. Existing problems keep their individual settings.');
 });
-for(const id of ['#text-button','#text-button-2'])$(id).addEventListener('click',()=>{$('#text-dialog').showModal();$('#problem-text').focus();});
+function updateTextTarget() {
+  const editing = !!textEditor?.regionId;
+  const append = !editing && $('#text-target').value === 'append';
+  const p = editing ? state.problems.find(p => p.id === textEditor.problemId) : selected();
+  $('#add-text').textContent = editing ? 'Save text' : append ? 'Append text' : 'Add problem';
+  $('#text-size-note').textContent = editing || append
+    ? `Problem ${state.problems.indexOf(p) + 1} uses ${p?.scale || 100}% size. Its existing regions and writing space are kept.`
+    : textEditor?.reflow ? 'New reflowed problems start at 100% size and wrap to the current printable width.'
+      : `New problems use the saved ${state.defaults.scale}% size. Text wraps to the current printable width.`;
+}
+function openTextEditor(options = {}) {
+  textEditor = { ...options };
+  const editing = !!options.regionId;
+  $('#text-heading').textContent = editing ? 'Edit text' : options.reflow ? 'Review selected text' : 'Paste a problem';
+  $('#problem-text').value = options.text || '';
+  $('#text-review-note').textContent = options.notice || (options.reflow
+    ? 'Check the wording, reading order, and symbols before adding. Keep equations and diagrams as image crops.'
+    : 'Plain text and line breaks use a regular font. Keep typeset equations and diagrams as image crops; LaTeX commands are not typeset.');
+  $('#text-target-row').hidden = editing;
+  $('#text-target option[value="append"]').disabled = !selected();
+  $('#text-target').value = options.target === 'append' && selected() ? 'append' : 'new';
+  updateTextTarget();
+  $('#text-dialog').showModal();
+  $('#problem-text').focus();
+}
+for(const id of ['#text-button','#text-button-2'])$(id).addEventListener('click',()=>openTextEditor());
+$('#text-target').addEventListener('change',updateTextTarget);
+$('#text-dialog').addEventListener('close',()=>{if(!$('#text-dialog').open)textEditor=null;});
+$('#reflow-text').addEventListener('click',async()=>{
+  if(!state.crop || state.crop.regionId || !source())return;
+  const crop = { ...state.crop, rect: { ...state.crop.rect } };
+  const input = source(), pageNumber = state.page;
+  let result;
+  const ok = await runBusy('Reading the selected text…',async()=>{result=await selectedText(input,pageNumber,crop.rect);});
+  if(!ok)return;
+  const notice = ['Review the wording, reading order, and symbols. Select only prose; keep equations and diagrams as image crops.', ...result.warnings].join(' ');
+  openTextEditor({text:result.text,reflow:true,notice,crop});
+});
 $('#add-text').addEventListener('click',async()=>{
-  const text=$('#problem-text').value.trim();if(!text){$('#problem-text').focus();return;}
-  $('#text-dialog').close();await runBusy('Formatting problem text…',async()=>{const r=await textRegion(text);const p=newProblem(r);state.problems.push(p);state.selected=p.id;dirty();renderQueue();$('#problem-text').value='';tell('Text problem added. Plain text and Unicode symbols are preserved; LaTeX commands are not typeset.');});
+  if(state.busy)return;
+  const text = $('#problem-text').value.trim();
+  if(!text){$('#problem-text').focus();return;}
+  if(text.length>6000){$('#text-review-note').textContent='Text is limited to 6,000 characters. Split it into smaller regions; nothing has been added.';return;}
+  const editor = { ...textEditor, target: $('#text-target').value };
+  const parent = editor.regionId ? state.problems.find(p=>p.id===editor.problemId)
+    : editor.target==='append' ? selected() : null;
+  if((editor.regionId || editor.target==='append')&&!parent)return;
+  $('#text-dialog').close();
+  const ok = await runBusy('Formatting problem text…',async()=>{
+    const options = settings();
+    const width = (PAPER[options.paper] || PAPER.letter)[0] - options.margin * 2;
+    const r = await textRegion(text,width);
+    if(editor.regionId){
+      const index=parent.regions.findIndex(r=>r.id===editor.regionId);
+      if(index<0)throw new Error('This text region no longer exists.');
+      r.id=editor.regionId;r.sourceName=parent.regions[index].sourceName;
+      parent.regions[index]=r;state.selected=parent.id;
+    } else {
+      if(editor.reflow)r.sourceName='Reflowed text';
+      if(parent){parent.regions.push(r);state.selected=parent.id;}
+      else {
+        const p=newProblem(r);
+        if(editor.reflow){p.scale=100;p.fit='flow';}
+        state.problems.push(p);state.selected=p.id;
+      }
+      if(editor.crop){
+        if(editor.crop.suggestionId)state.suggestions=state.suggestions.filter(s=>s.id!==editor.crop.suggestionId);
+        state.crop=null;
+      }
+    }
+    dirty();renderQueue();renderCropEditor();renderSuggestions();
+    tell(editor.regionId ? 'Text updated. Check the print preview.' : editor.reflow
+      ? 'Reviewed text added. Select the original equation or diagram and press Q to append it to this problem.'
+      : parent ? 'Text appended to the selected problem.' : 'Text problem added. Plain text and Unicode symbols are preserved; LaTeX commands are not typeset.');
+  });
+  if(!ok)openTextEditor({...editor,text,notice:$('#notice').textContent});
 });
 $('#help-button').addEventListener('click',()=>$('#help-dialog').showModal());$('#close-help').addEventListener('click',()=>$('#help-dialog').close());
 for(const id of ['#preview-tab','#preview-button'])$(id).addEventListener('click',showPreview);
