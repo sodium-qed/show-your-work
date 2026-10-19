@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="description" content="Turn selected math problems into printable worksheets with room to think. Private, local PDF processing.">
+<title>Margin — Math worksheet studio</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 64 64%27%3E%3Crect width=%2764%27 height=%2764%27 rx=%2714%27 fill=%27%23214d3f%27/%3E%3Ctext x=%2732%27 y=%2747%27 text-anchor=%27middle%27 font-family=%27serif%27 font-size=%2746%27 fill=%27white%27%3E%E2%88%91%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="/styles.css">
+<script src="/vendor/pdf-lib.min.js" defer></script>
+<script type="module" src="/src/app.js"></script>
+</head>
+<body>
+<header class="app-header">
+  <a class="brand" href="#" aria-label="Margin home"><span class="brand-mark">∑</span><span>margin<span class="brand-sub">MATH WORKSHEET STUDIO</span></span></a>
+  <div class="header-right"><span class="privacy"><span></span>Files stay in this browser</span><a id="download-html" class="button subtle" download="margin.html" hidden>↓ HTML file</a><button id="help-button" class="button subtle">Quick guide <span aria-hidden="true">↗</span></button></div>
+</header>
+<main>
+<section class="intro"><div><h1>Math worksheet editor</h1><p>Select problems, set the writing space, and export a PDF.</p></div><button id="export-top" class="button primary" disabled>↓ Export PDF</button></section>
+<nav class="workflow" aria-label="Workspace views"><button id="edit-tab" class="tab active" aria-selected="true"><span>01</span> Select & arrange</button><button id="preview-tab" class="tab" aria-selected="false"><span>02</span> Print preview <b id="preview-count"></b></button><span class="workflow-note">US Letter · 300 dpi target · No API key</span></nav>
+<div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
+<section id="editor-view" class="workspace">
+  <section class="source-panel panel" aria-label="Source document">
+    <div class="panel-heading"><div><p class="eyebrow">THE SOURCE</p><h2>Select the questions</h2></div><button class="button small" id="upload-button">+ Add files</button><input id="file-input" type="file" accept="application/pdf,image/png,image/jpeg,image/webp" multiple hidden></div>
+    <div id="empty-source" class="empty-source">
+      <div class="paper-icon" aria-hidden="true"><span>ƒ(x)</span><i></i><i></i><i></i></div>
+      <h3>Start with a problem set</h3><p>Drop a PDF or image here.<br>PDFs, scanned pages, and diagrams are supported.</p>
+      <button id="choose-file-button" class="button primary">↑ Choose a file</button><p class="file-hint">PDF, PNG, JPG, WEBP · up to 50 MB per file</p>
+      <div class="or"><span></span>or<span></span></div><div class="empty-actions"><button id="sample-button" class="button subtle">Try a sample PDF ↗</button><button id="text-button" class="button subtle">Paste problem text</button></div>
+    </div>
+    <div id="source-workspace" hidden>
+      <div class="source-toolbar"><select id="source-select" aria-label="Source file"></select><div class="page-nav"><button id="prev-page" class="icon-button" aria-label="Previous source page">‹</button><span id="page-label">Page 1 of 1</span><button id="next-page" class="icon-button" aria-label="Next source page">›</button></div></div>
+      <div class="tools-row"><button id="detect-button" class="button small">1. Suggest questions</button><button id="full-page-button" class="button small">Select whole page</button><button id="text-button-2" class="button small">+ Text</button></div>
+      <div id="suggestion-bar" class="suggestion-bar" hidden></div>
+      <div class="canvas-scroll"><div id="page-surface" class="page-surface"><canvas id="source-canvas" aria-label="Source page"></canvas><div id="crop-layer" class="crop-layer" tabindex="0" role="region" aria-label="Draw a rectangle to select a question. P adds it; Q appends it to the selected problem."></div></div></div>
+      <p class="canvas-help">Drag to select. Drag a selection to move it; use its corner handles to resize. <kbd>P</kbd> adds a problem; <kbd>Q</kbd> appends to the selected problem.</p>
+      <div id="crop-editor" class="crop-editor" hidden>
+        <div class="crop-heading"><strong id="crop-title">New selection</strong><button id="clear-crop" class="button subtle small">Clear</button></div>
+        <div class="coordinates"><label>Left %<input id="crop-x" type="number" min="0" max="99.5" step="0.1"></label><label>Top %<input id="crop-y" type="number" min="0" max="99.5" step="0.1"></label><label>Width %<input id="crop-w" type="number" min="0.5" max="100" step="0.1"></label><label>Height %<input id="crop-h" type="number" min="0.5" max="100" step="0.1"></label></div>
+        <div class="crop-actions"><button id="add-problem" class="button primary small" aria-keyshortcuts="P">+ Add as a problem <kbd aria-hidden="true">P</kbd></button><button id="append-region" class="button small" aria-keyshortcuts="Q">Append to selected problem <kbd aria-hidden="true">Q</kbd></button><button id="update-region" class="button primary small" hidden>Update region</button></div>
+      </div>
+    </div>
+  </section>
+  <aside class="queue-panel panel" aria-label="Worksheet problems">
+    <div class="panel-heading"><div><p class="eyebrow">THE WORKSHEET</p><h2>Worksheet <span id="problem-count" class="count">0</span></h2></div></div>
+    <div class="queue-settings"><label>Worksheet title<input id="worksheet-title" value="Math practice" maxlength="90" placeholder="Optional title"></label><div class="settings-row"><label>Paper<select id="paper-size"><option value="letter">US Letter</option><option value="a4">A4</option></select></label><label>Margins<select id="page-margin"><option value="36">0.5 in</option><option value="54">0.75 in</option><option value="72">1 in</option></select></label></div><div class="settings-row"><label>Problem alignment<select id="question-alignment"><option value="center">Centered</option><option value="left">Left aligned</option></select></label><label class="check-label"><input id="name-line" type="checkbox" checked> Name & date</label></div><p id="settings-status" class="settings-status"></p><button id="reset-preferences" class="button subtle small" type="button">Reset saved settings</button></div>
+    <div id="empty-queue" class="empty-queue"><span aria-hidden="true">↖</span><h3>No problems added</h3><p>Select a region on the source page, then add it as a problem.</p><p class="quiet">A question spanning pages? Append each part to the same problem.</p></div>
+    <ol id="problem-list" class="problem-list"></ol>
+    <div class="queue-footer"><button id="preview-button" class="button primary full" disabled>Preview worksheet <span>→</span></button><p>Blank solution areas. Original questions.</p></div>
+  </aside>
+</section>
+<section id="preview-view" class="preview-workspace" hidden>
+  <aside class="panel preview-sidebar"><h2>Print preview</h2><p>This preview renders the exact PDF used for export.</p><div id="preview-summary" class="preview-summary"></div><button id="refresh-preview" class="button full">↻ Refresh preview</button><button id="export-button" class="button primary full" disabled>↓ Export PDF</button><button id="back-to-edit" class="button subtle full">← Back to editing</button><div id="layout-warnings"></div><p class="quiet">Print at 100% / Actual size. Each problem’s requested writing height is preserved, including on continuation pages.</p></aside>
+  <div id="preview-pages" class="preview-pages" aria-live="polite"></div>
+</section>
+<footer><span>Margin · math worksheets</span><span>Local processing · No account · No AI</span></footer>
+</main>
+<dialog id="text-dialog"><form method="dialog" id="text-form"><div class="dialog-heading"><h2>Paste a problem</h2><button value="cancel" class="icon-button" aria-label="Close">×</button></div><p>Plain text, Unicode math, and line breaks are supported. Use a PDF or image for typeset fractions and diagrams.</p><label>Problem text<textarea id="problem-text" rows="8" maxlength="6000" placeholder="Find all integers n such that…"></textarea></label><div class="dialog-actions"><button value="cancel" class="button">Cancel</button><button id="add-text" type="button" class="button primary">Add problem</button></div></form></dialog>
+<dialog id="help-dialog"><div class="dialog-heading"><h2>From problem set to worksheet.</h2><button id="close-help" class="icon-button" aria-label="Close guide">×</button></div><ol class="guide"><li><strong>Upload.</strong> Add one or more PDFs or images. Everything is processed locally.</li><li><strong>Select.</strong> Drag around a question, or review automatic suggestions. Adjust crops with handles or percentage inputs.</li><li><strong>Combine.</strong> Select a problem card, navigate to another page, then append a region for its continuation.</li><li><strong>Arrange.</strong> Move cards up or down. Adjust writing space, scale, and page breaks.</li><li><strong>Preview & export.</strong> Check the actual PDF. For oversized crops, reduce scale, split the selection, or choose Fit to one page.</li></ol><p class="quiet">Suggestions use numbered text, not OCR. Scans need manual selection. Keep only the question in each crop. P adds a new selection; Q appends it to the selected problem. Shortcuts pause while typing or using a dialog. Settings are remembered for new problems and future visits; refreshing clears the imported files and problem list.</p></dialog>
+<div id="busy" class="busy" hidden role="status"><span class="spinner"></span><span id="busy-text">Working…</span></div>
+</body>
+</html>

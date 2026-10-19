@@ -1,0 +1,27 @@
+{
+  "name": "show-your-work",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "AI-free browser math worksheet formatter, with a standalone offline HTML file.",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node scripts/serve.mjs",
+    "dev": "node scripts/serve.mjs",
+    "build": "node scripts/build.mjs",
+    "preview": "node scripts/serve.mjs --dist",
+    "test": "node --test tests/*.test.mjs",
+    "test:e2e": "node tests/e2e.mjs",
+    "build:html": "node scripts/build-html.mjs",
+    "test:ui": "node tests/preferences-shortcuts.e2e.mjs"
+  },
+  "dependencies": {
+    "pdf-lib": "1.17.1",
+    "pdfjs-dist": "5.4.149"
+  },
+  "devDependencies": {
+    "playwright": "1.56.1"
+  }
+}

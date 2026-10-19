@@ -1,0 +1,622 @@
+{
+  "version": 1,
+  "description": "Original deterministic fixtures. Rectangle origins are top-left, in displayed PDF coordinates.",
+  "generator": "scripts/generate-fixtures.py",
+  "sample": {
+    "path": "public/samples/sample.pdf",
+    "url": "/samples/sample.pdf",
+    "pageCount": 4,
+    "pages": [
+      {
+        "page": 1,
+        "pageIndex": 0,
+        "widthPt": 612,
+        "heightPt": 792,
+        "rotation": 0,
+        "kind": "native",
+        "questionIds": [
+          "q1",
+          "q2",
+          "q3"
+        ]
+      },
+      {
+        "page": 2,
+        "pageIndex": 1,
+        "widthPt": 612,
+        "heightPt": 792,
+        "rotation": 0,
+        "kind": "native",
+        "columns": 2,
+        "questionIds": [
+          "q4",
+          "q5",
+          "q6",
+          "q7"
+        ]
+      },
+      {
+        "page": 3,
+        "pageIndex": 2,
+        "widthPt": 612,
+        "heightPt": 792,
+        "rotation": 0,
+        "kind": "native",
+        "questionIds": [
+          "q8",
+          "q9"
+        ]
+      },
+      {
+        "page": 4,
+        "pageIndex": 3,
+        "widthPt": 612,
+        "heightPt": 792,
+        "rotation": 0,
+        "kind": "scan",
+        "expectedExtractedText": "",
+        "questionIds": [
+          "q9-continued",
+          "q10"
+        ]
+      }
+    ],
+    "regions": [
+      {
+        "id": "q1",
+        "questionNumber": 1,
+        "page": 1,
+        "pageIndex": 0,
+        "title": "Rational equations",
+        "kind": "native",
+        "rectPt": {
+          "x": 40,
+          "y": 152,
+          "width": 532,
+          "height": 153
+        },
+        "rectNormalized": {
+          "x": 0.06535947712418301,
+          "y": 0.1919191919191919,
+          "width": 0.869281045751634,
+          "height": 0.19318181818181818
+        },
+        "expectedContent": [
+          "3x − 2",
+          "x + 1",
+          "excluded value"
+        ]
+      },
+      {
+        "id": "q2",
+        "questionNumber": 2,
+        "page": 1,
+        "pageIndex": 0,
+        "title": "Quadratic structure",
+        "kind": "native",
+        "rectPt": {
+          "x": 40,
+          "y": 320,
+          "width": 532,
+          "height": 182
+        },
+        "rectNormalized": {
+          "x": 0.06535947712418301,
+          "y": 0.40404040404040403,
+          "width": 0.869281045751634,
+          "height": 0.2297979797979798
+        },
+        "expectedContent": [
+          "f(x)",
+          "Zeros",
+          "Vertex"
+        ]
+      },
+      {
+        "id": "q3",
+        "questionNumber": 3,
+        "page": 1,
+        "pageIndex": 0,
+        "title": "A line through two points",
+        "kind": "native",
+        "rectPt": {
+          "x": 40,
+          "y": 514,
+          "width": 532,
+          "height": 202
+        },
+        "rectNormalized": {
+          "x": 0.06535947712418301,
+          "y": 0.648989898989899,
+          "width": 0.869281045751634,
+          "height": 0.255050505050505
+        },
+        "expectedContent": [
+          "A(−2, 1)",
+          "B(3, 4)",
+          "slope",
+          "coordinate diagram"
+        ]
+      },
+      {
+        "id": "q4",
+        "questionNumber": 4,
+        "page": 2,
+        "pageIndex": 1,
+        "title": "Area from a diagram",
+        "kind": "native",
+        "rectPt": {
+          "x": 40,
+          "y": 152,
+          "width": 256,
+          "height": 252
+        },
+        "rectNormalized": {
+          "x": 0.06535947712418301,
+          "y": 0.1919191919191919,
+          "width": 0.41830065359477125,
+          "height": 0.3181818181818182
+        },
+        "expectedContent": [
+          "triangle ABC",
+          "12 cm",
+          "7 cm"
+        ]
+      },
+      {
+        "id": "q5",
+        "questionNumber": 5,
+        "page": 2,
+        "pageIndex": 1,
+        "title": "Simplify with care",
+        "kind": "native",
+        "rectPt": {
+          "x": 40,
+          "y": 427,
+          "width": 256,
+          "height": 286
+        },
+        "rectNormalized": {
+          "x": 0.06535947712418301,
+          "y": 0.5391414141414141,
+          "width": 0.41830065359477125,
+          "height": 0.3611111111111111
+        },
+        "expectedContent": [
+          "x² − 9",
+          "x² + 3x",
+          "excluded"
+        ]
+      },
+      {
+        "id": "q6",
+        "questionNumber": 6,
+        "page": 2,
+        "pageIndex": 1,
+        "title": "Accumulated change",
+        "kind": "native",
+        "rectPt": {
+          "x": 316,
+          "y": 152,
+          "width": 256,
+          "height": 252
+        },
+        "rectNormalized": {
+          "x": 0.5163398692810458,
+          "y": 0.1919191919191919,
+          "width": 0.41830065359477125,
+          "height": 0.3181818181818182
+        },
+        "expectedContent": [
+          "definite integral",
+          "3x",
+          "antiderivative"
+        ]
+      },
+      {
+        "id": "q7",
+        "questionNumber": 7,
+        "page": 2,
+        "pageIndex": 1,
+        "title": "A small data story",
+        "kind": "native",
+        "rectPt": {
+          "x": 316,
+          "y": 427,
+          "width": 256,
+          "height": 286
+        },
+        "rectNormalized": {
+          "x": 0.5163398692810458,
+          "y": 0.5391414141414141,
+          "width": 0.41830065359477125,
+          "height": 0.3611111111111111
+        },
+        "expectedContent": [
+          "books",
+          "mean",
+          "median"
+        ]
+      },
+      {
+        "id": "q8",
+        "questionNumber": 8,
+        "page": 3,
+        "pageIndex": 2,
+        "title": "A curve and its derivative",
+        "kind": "native",
+        "rectPt": {
+          "x": 40,
+          "y": 152,
+          "width": 532,
+          "height": 198
+        },
+        "rectNormalized": {
+          "x": 0.06535947712418301,
+          "y": 0.1919191919191919,
+          "width": 0.869281045751634,
+          "height": 0.25
+        },
+        "expectedContent": [
+          "stationary points",
+          "exact value",
+          "fraction"
+        ]
+      },
+      {
+        "id": "q9",
+        "questionNumber": 9,
+        "page": 3,
+        "pageIndex": 2,
+        "title": "A tank, a rate, and a decision",
+        "kind": "native",
+        "rectPt": {
+          "x": 40,
+          "y": 372,
+          "width": 532,
+          "height": 354
+        },
+        "rectNormalized": {
+          "x": 0.06535947712418301,
+          "y": 0.4696969696969697,
+          "width": 0.869281045751634,
+          "height": 0.44696969696969696
+        },
+        "expectedContent": [
+          "12 litres",
+          "4 + 2t",
+          "Continue Question 9 on page 4"
+        ]
+      },
+      {
+        "id": "q9-continued",
+        "questionNumber": 9,
+        "page": 4,
+        "pageIndex": 3,
+        "title": "Tank model (continued)",
+        "kind": "scan",
+        "rectPt": {
+          "x": 40,
+          "y": 152,
+          "width": 532,
+          "height": 279
+        },
+        "rectNormalized": {
+          "x": 0.06535947712418301,
+          "y": 0.1919191919191919,
+          "width": 0.869281045751634,
+          "height": 0.3522727272727273
+        },
+        "expectedContent": [
+          "V(0) = 12",
+          "60 litres",
+          "0 ≤ t ≤ 6"
+        ]
+      },
+      {
+        "id": "q10",
+        "questionNumber": 10,
+        "page": 4,
+        "pageIndex": 3,
+        "title": "Geometry from a scan",
+        "kind": "scan",
+        "rectPt": {
+          "x": 40,
+          "y": 456,
+          "width": 532,
+          "height": 257
+        },
+        "rectNormalized": {
+          "x": 0.06535947712418301,
+          "y": 0.5757575757575758,
+          "width": 0.869281045751634,
+          "height": 0.3244949494949495
+        },
+        "expectedContent": [
+          "radius 6 cm",
+          "60°",
+          "sector",
+          "π"
+        ]
+      }
+    ],
+    "multiPageQuestion": {
+      "questionNumber": 9,
+      "segments": [
+        "q9",
+        "q9-continued"
+      ],
+      "expectedTitle": "A tank, a rate, and a decision"
+    },
+    "usefulManualCrop": "q10",
+    "usefulNativeCrop": "q1",
+    "readingOrder": [
+      "q1",
+      "q2",
+      "q3",
+      "q4",
+      "q5",
+      "q6",
+      "q7",
+      "q8",
+      "q9",
+      "q9-continued",
+      "q10"
+    ]
+  },
+  "cropUnits": "crops[].rect is normalized 0–1; crops[].rectPt and sample.regions[].rectPt are PDF points; every origin is top-left",
+  "crops": [
+    {
+      "id": "q1",
+      "page": 1,
+      "pageIndex": 0,
+      "rect": {
+        "x": 0.06535947712418301,
+        "y": 0.1919191919191919,
+        "w": 0.869281045751634,
+        "h": 0.19318181818181818
+      },
+      "rectPt": {
+        "x": 40,
+        "y": 152,
+        "w": 532,
+        "h": 153
+      }
+    },
+    {
+      "id": "q2",
+      "page": 1,
+      "pageIndex": 0,
+      "rect": {
+        "x": 0.06535947712418301,
+        "y": 0.40404040404040403,
+        "w": 0.869281045751634,
+        "h": 0.2297979797979798
+      },
+      "rectPt": {
+        "x": 40,
+        "y": 320,
+        "w": 532,
+        "h": 182
+      }
+    },
+    {
+      "id": "q3",
+      "page": 1,
+      "pageIndex": 0,
+      "rect": {
+        "x": 0.06535947712418301,
+        "y": 0.648989898989899,
+        "w": 0.869281045751634,
+        "h": 0.255050505050505
+      },
+      "rectPt": {
+        "x": 40,
+        "y": 514,
+        "w": 532,
+        "h": 202
+      }
+    },
+    {
+      "id": "q4",
+      "page": 2,
+      "pageIndex": 1,
+      "rect": {
+        "x": 0.06535947712418301,
+        "y": 0.1919191919191919,
+        "w": 0.41830065359477125,
+        "h": 0.3181818181818182
+      },
+      "rectPt": {
+        "x": 40,
+        "y": 152,
+        "w": 256,
+        "h": 252
+      }
+    },
+    {
+      "id": "q5",
+      "page": 2,
+      "pageIndex": 1,
+      "rect": {
+        "x": 0.06535947712418301,
+        "y": 0.5391414141414141,
+        "w": 0.41830065359477125,
+        "h": 0.3611111111111111
+      },
+      "rectPt": {
+        "x": 40,
+        "y": 427,
+        "w": 256,
+        "h": 286
+      }
+    },
+    {
+      "id": "q6",
+      "page": 2,
+      "pageIndex": 1,
+      "rect": {
+        "x": 0.5163398692810458,
+        "y": 0.1919191919191919,
+        "w": 0.41830065359477125,
+        "h": 0.3181818181818182
+      },
+      "rectPt": {
+        "x": 316,
+        "y": 152,
+        "w": 256,
+        "h": 252
+      }
+    },
+    {
+      "id": "q7",
+      "page": 2,
+      "pageIndex": 1,
+      "rect": {
+        "x": 0.5163398692810458,
+        "y": 0.5391414141414141,
+        "w": 0.41830065359477125,
+        "h": 0.3611111111111111
+      },
+      "rectPt": {
+        "x": 316,
+        "y": 427,
+        "w": 256,
+        "h": 286
+      }
+    },
+    {
+      "id": "q8",
+      "page": 3,
+      "pageIndex": 2,
+      "rect": {
+        "x": 0.06535947712418301,
+        "y": 0.1919191919191919,
+        "w": 0.869281045751634,
+        "h": 0.25
+      },
+      "rectPt": {
+        "x": 40,
+        "y": 152,
+        "w": 532,
+        "h": 198
+      }
+    },
+    {
+      "id": "q9-start",
+      "page": 3,
+      "pageIndex": 2,
+      "rect": {
+        "x": 0.06535947712418301,
+        "y": 0.4696969696969697,
+        "w": 0.869281045751634,
+        "h": 0.44696969696969696
+      },
+      "rectPt": {
+        "x": 40,
+        "y": 372,
+        "w": 532,
+        "h": 354
+      }
+    },
+    {
+      "id": "q9-continuation",
+      "page": 4,
+      "pageIndex": 3,
+      "rect": {
+        "x": 0.06535947712418301,
+        "y": 0.1919191919191919,
+        "w": 0.869281045751634,
+        "h": 0.3522727272727273
+      },
+      "rectPt": {
+        "x": 40,
+        "y": 152,
+        "w": 532,
+        "h": 279
+      }
+    },
+    {
+      "id": "q10",
+      "page": 4,
+      "pageIndex": 3,
+      "rect": {
+        "x": 0.06535947712418301,
+        "y": 0.5757575757575758,
+        "w": 0.869281045751634,
+        "h": 0.3244949494949495
+      },
+      "rectPt": {
+        "x": 40,
+        "y": 456,
+        "w": 532,
+        "h": 257
+      }
+    }
+  ],
+  "rotated": {
+    "path": "public/samples/rotated.pdf",
+    "url": "/samples/rotated.pdf",
+    "pageCount": 1,
+    "sourcePage": 1,
+    "rotation": 90,
+    "mediaBoxPt": {
+      "width": 612,
+      "height": 792
+    },
+    "displaySizePt": {
+      "width": 792,
+      "height": 612
+    },
+    "expectedContent": "Rational equations"
+  },
+  "oversize": {
+    "path": "public/samples/oversize.pdf",
+    "url": "/samples/oversize.pdf",
+    "pageCount": 1,
+    "widthPt": 1800,
+    "heightPt": 5400,
+    "expectedContent": "Oversized page rendering fixture",
+    "markers": [
+      {
+        "label": "TOP / 01",
+        "rectPt": {
+          "x": 100,
+          "y": 100,
+          "width": 1600,
+          "height": 180
+        }
+      },
+      {
+        "label": "MIDDLE / 02",
+        "rectPt": {
+          "x": 100,
+          "y": 2595,
+          "width": 1600,
+          "height": 180
+        }
+      },
+      {
+        "label": "BOTTOM / 03",
+        "rectPt": {
+          "x": 100,
+          "y": 5045,
+          "width": 1600,
+          "height": 180
+        }
+      }
+    ]
+  },
+  "image": {
+    "path": "public/samples/example.png",
+    "url": "/samples/example.png",
+    "duplicatePath": "tests/fixtures/example.png",
+    "widthPx": 1224,
+    "heightPx": 1584,
+    "expectedContent": "Patterns, proofs & practice"
+  },
+  "corrupt": {
+    "path": "tests/fixtures/corrupt.pdf",
+    "expectedResult": "Graceful error without losing existing worksheet state"
+  }
+}
