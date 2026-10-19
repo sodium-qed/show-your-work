@@ -230,6 +230,109 @@ function boundedRect(rect) {
   return { x, y, w: right - x, h: bottom - y };
 }
 
+// Assets contain locally generated PNG bytes. Read the PNG bounds before
+// decoding so an invalid asset cannot bypass the existing canvas memory limit.
+async function assetImage(asset) {
+  const input = asset?.png;
+  const bytes = input instanceof ArrayBuffer ? new Uint8Array(input)
+    : ArrayBuffer.isView(input) ? new Uint8Array(input.buffer, input.byteOffset, input.byteLength) : null;
+  const signature = [137, 80, 78, 71, 13, 10, 26, 10];
+  if (!bytes || bytes.length < 33 || !signature.every((value, index) => bytes[index] === value)) {
+    throw new Error('This problem is missing its original PNG image. Re-add the crop.');
+  }
+  const header = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  if (header.getUint32(8) !== 13 || header.getUint32(12) !== 0x49484452) {
+    throw new Error('This crop image could not be read. Re-add the crop.');
+  }
+  const width = header.getUint32(16), height = header.getUint32(20);
+  if (!width || !height) throw new Error('This crop image has no usable pixels. Re-add the crop.');
+  if (width > MAX_SIDE || height > MAX_SIDE || width * height > MAX_PIXELS) {
+    throw new Error('This crop image is too large to render. Use a smaller crop.');
+  }
+  const blob = new Blob([bytes], { type: 'image/png' });
+  let image, url;
+  const release = () => {
+    image?.close?.();
+    if (url) { image?.removeAttribute('src'); URL.revokeObjectURL(url); }
+  };
+  try {
+    if (typeof globalThis.createImageBitmap === 'function') image = await createImageBitmap(blob);
+    else {
+      url = URL.createObjectURL(blob);
+      image = new Image(); image.decoding = 'async'; image.src = url;
+      await image.decode();
+    }
+    if ((image.naturalWidth || image.width) !== width || (image.naturalHeight || image.height) !== height) {
+      throw new Error('Unexpected image dimensions.');
+    }
+    return { image, width, height, release };
+  } catch {
+    release();
+    throw new Error('This crop image could not be read. Re-add the crop.');
+  }
+}
+
+/** Prepare a small local image; this function never sends it to a service. */
+export async function aiImage(asset) {
+  const original = await assetImage(asset);
+  let c;
+  try {
+    const scale = Math.min(1, 1600 / Math.max(original.width, original.height));
+    const size = dimensions(original.width, original.height, scale, 2_000_000);
+    c = canvas(size.width, size.height);
+    const ctx = white(c); ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(original.image, 0, 0, c.width, c.height);
+    return { dataUrl: c.toDataURL('image/png'), width: c.width, height: c.height,
+      text: typeof asset.text === 'string' ? asset.text : '' };
+  } finally {
+    original.release();
+    if (c) c.width = c.height = 1;
+  }
+}
+
+/** Copy original crop pixels at their existing print size, never the AI image. */
+export async function cropAssetRegion(asset, inputRect) {
+  const rect = boundedRect(inputRect);
+  if (!(asset?.width > 0 && asset?.height > 0) || !Number.isFinite(asset.width + asset.height)) {
+    throw new Error('This problem has invalid print dimensions. Re-add the crop.');
+  }
+  const originalRect = asset.rect == null ? null : boundedRect(asset.rect);
+  const original = await assetImage(asset);
+  let c;
+  try {
+    // Round shared edges consistently. The matching point bounds keep the
+    // copied pixels at exactly their original scale, including repeated crops.
+    const left = Math.round(rect.x * original.width), top = Math.round(rect.y * original.height);
+    const right = Math.round((rect.x + rect.w) * original.width), bottom = Math.round((rect.y + rect.h) * original.height);
+    if (right <= left || bottom <= top) throw new Error('The crop is smaller than one source pixel. Select a larger area.');
+    const normalized = { x: left / original.width, y: top / original.height,
+      w: (right - left) / original.width, h: (bottom - top) / original.height };
+    const width = asset.width * normalized.w, height = asset.height * normalized.h;
+    const density = 72 * Math.min((right - left) / width, (bottom - top) / height);
+    if (!(width > 0 && height > 0 && density > 0) || !Number.isFinite(width + height + density)) {
+      throw new Error('This problem has invalid print dimensions. Re-add the crop.');
+    }
+    const renderDpi = Math.min(density, Number.isFinite(asset.renderDpi) && asset.renderDpi > 0 ? asset.renderDpi : Infinity);
+    const dpi = Math.min(renderDpi, Number.isFinite(asset.dpi) && asset.dpi > 0 ? asset.dpi : Infinity);
+    c = canvas(right - left, bottom - top);
+    const ctx = white(c); ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(original.image, left, top, c.width, c.height, 0, 0, c.width, c.height);
+    const region = {
+      id: uid(), sourceId: asset.sourceId ?? null, sourceName: asset.sourceName ?? 'Original crop', page: asset.page ?? 1,
+      width, height, pixelWidth: c.width, pixelHeight: c.height, dpi, renderDpi,
+      png: await pngBytes(c), thumbnail: thumbnail(c), breaks: whitespaceBreaks(c),
+    };
+    if (originalRect) region.rect = boundedRect({
+      x: originalRect.x + normalized.x * originalRect.w, y: originalRect.y + normalized.y * originalRect.h,
+      w: normalized.w * originalRect.w, h: normalized.h * originalRect.h,
+    });
+    return region;
+  } finally {
+    original.release();
+    if (c) c.width = c.height = 1;
+  }
+}
+
 // Estimate native scan density without decoding another copy of its image. This
 // deliberately ignores PDF text/vector objects, which use the export raster target.
 async function rasterImages(source, pageNumber, info) {

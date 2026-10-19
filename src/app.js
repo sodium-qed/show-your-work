@@ -1,5 +1,6 @@
-import { uid, loadSource, pageInfo, renderSource, suggestions, selectedText, cropRegion, textRegion, createWorksheet, renderPreview } from './pdf-engine.js';
+import { uid, loadSource, pageInfo, renderSource, suggestions, selectedText, cropRegion, textRegion, aiImage, cropAssetRegion, createWorksheet, renderPreview } from './pdf-engine.js';
 import { normalizeRect, PAPER } from './layout.js';
+import { validateAiPlan } from './ai-plan.js';
 import { DEFAULT_SETTINGS, DEFAULT_PROBLEM, loadPreferences, savePreferences } from './preferences.js';
 
 const $ = selector => document.querySelector(selector);
@@ -9,6 +10,7 @@ const source = () => state.sources.find(s => s.id === state.sourceId);
 const selected = () => state.problems.find(p => p.id === state.selected);
 const escape = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 let textEditor = null;
+let aiEditor = null;
 const settings = () => ({ title: $('#worksheet-title').value, paper: $('#paper-size').value, margin: Number($('#page-margin').value), nameLine: $('#name-line').checked, alignment: $('#question-alignment').value, spacing: $('#page-spacing').value, numbering: $('#number-problems').checked });
 function applyWorksheetSettings(value) {
   $('#worksheet-title').value = value.title;
@@ -87,6 +89,7 @@ function renderCropEditor() {
   $('#update-region').hidden=!c.regionId;
   $('#add-problem').hidden=!!c.regionId; $('#append-region').hidden=!!c.regionId;
   $('#reflow-text').hidden=!!c.regionId;
+  $('#ai-format').hidden=!!c.regionId;
   updateButtons();
 }
 function syncSuggestion() {
@@ -104,6 +107,7 @@ function renderQueue() {
   $('#problem-list').innerHTML=state.problems.map((p,i)=>`<li class="problem-card${p.id===state.selected?' selected':''}" data-id="${p.id}" tabindex="0" aria-label="Problem ${i+1}">
     <div class="card-head"><div class="card-label"><span class="problem-number">${String(i+1).padStart(2,'0')}</span>Problem ${i+1}<span class="quiet">${p.regions.length>1?`${p.regions.length} parts`:''}</span></div><div class="card-actions"><button class="icon-button" data-action="up" aria-label="Move problem ${i+1} up" ${i===0?'disabled':''}>↑</button><button class="icon-button" data-action="down" aria-label="Move problem ${i+1} down" ${i===state.problems.length-1?'disabled':''}>↓</button><button class="icon-button" data-action="remove" aria-label="Remove problem ${i+1}">×</button></div></div>
     <div class="region-list">${p.regions.map((r,ri)=>`<div class="region-thumb"><img src="${r.thumbnail}" alt="Problem ${i+1}, region ${ri+1}"><div class="region-caption"><span title="${escape(r.sourceName)}">${escape(r.sourceName)}${r.sourceId?` · p. ${r.page}`:''}</span><div class="region-actions">${r.sourceId?`<button data-action="edit-region" data-region="${r.id}" aria-label="Edit region ${ri+1} of problem ${i+1}">Crop</button>`:''}${typeof r.text==='string'?`<button data-action="edit-text" data-region="${r.id}" aria-label="Edit text in region ${ri+1} of problem ${i+1}">Edit text</button>`:''}${p.regions.length>1?`<button data-action="region-up" data-region="${r.id}" aria-label="Move region ${ri+1} up" ${ri===0?'disabled':''}>↑</button><button data-action="region-down" data-region="${r.id}" aria-label="Move region ${ri+1} down" ${ri===p.regions.length-1?'disabled':''}>↓</button>`:''}<button data-action="remove-region" data-region="${r.id}" aria-label="Remove region ${ri+1} of problem ${i+1}">×</button></div></div></div>`).join('')}</div>
+    <div class="problem-format-actions"><button class="button small" data-action="ai-format">Format with AI</button>${p.aiOriginal?'<button class="button subtle small" data-action="restore-original">Restore original</button>':''}</div>
     <div class="problem-controls"><label>${settings().spacing === 'compact' ? 'Writing space' : 'Minimum space'} (in)<input type="number" data-field="space" min="0" max="10" step="0.25" value="${+(p.space/72).toFixed(3)}"></label><label>Question size (%)<input type="number" data-field="scale" min="25" max="200" step="5" value="${p.scale}"></label><label class="wide">Oversized problem<select data-field="fit"><option value="flow"${p.fit==='flow'?' selected':''}>Continue onto next page</option><option value="shrink"${p.fit==='shrink'?' selected':''}>Fit to one page (shrink question)</option></select></label></div>
     <p class="scale-hint${p.scale<70?' small-print':''}">${p.scale<70?`${p.scale}% can make source text very small.`:'100% keeps the original print size.'}${p.scale!==100?' <button class="reset-scale" data-action="reset-scale">Reset to 100%</button>':''}</p>
     <label class="check-label"><input type="checkbox" data-field="pageBreak" ${p.pageBreak?'checked':''}> Start on a new page</label>${p.id===state.selected?'<p class="selected-hint">Selected · new regions can be appended to this problem.</p>':''}
@@ -149,6 +153,9 @@ async function ensurePreview() {
   const result=await createWorksheet(state.problems,settings());
   const container=document.createElement('div');const previewInfo=await renderPreview(result.bytes,container);
   if(previewInfo?.reducedResolution)result.layout.warnings.push({kind:'preview',message:'Preview images are reduced for this long worksheet. The exported PDF keeps the full crop resolution.'});
+  presentPreview(result,container);
+}
+function presentPreview(result,container) {
   $('#preview-pages').replaceChildren(...container.childNodes);
   state.preview={...result,revision:state.revision};
   const {layout}=result;
@@ -169,6 +176,154 @@ async function exportPDF() {
     tell(`Exported ${state.preview.layout.pages.length} page${state.preview.layout.pages.length===1?'':'s'}. Print at 100% / Actual size.`);
   });
 }
+
+function aiControls(editor) {
+  if(aiEditor!==editor)return;
+  $('#ai-run').disabled=editor.busy||!editor.available||!editor.assets?.length;
+  $('#ai-refresh').disabled=editor.busy||!editor.plan;
+  $('#ai-add-block').disabled=editor.busy||!editor.plan||editor.plan.blocks.length>=24;
+  $('#ai-blocks').inert=editor.busy;
+  $('#ai-apply').disabled=editor.busy||!editor.draft||editor.dirty;
+}
+function aiOriginals(editor) {
+  $('#ai-originals').innerHTML=(editor.assets||[]).map((asset,i)=>`<figure><div class="ai-source-image"><img src="${editor.images?.[i]?.dataUrl||asset.thumbnail}" alt="Original selection ${i+1}">${(editor.plan?.blocks||[]).map((b,j)=>b.source===i?`<div class="ai-source-box ${b.kind}" style="${rectStyle(b.rect)}"><span>${j+1} · ${b.kind==='text'?'Text':'Image'}</span></div>`:'').join('')}</div><figcaption>Selection ${i+1} · ${escape(asset.sourceName)}${asset.sourceId?` · page ${asset.page}`:''}</figcaption></figure>`).join('');
+}
+function aiBlocks(editor) {
+  $('#ai-blocks').innerHTML=editor.plan.blocks.map((b,i)=>`<fieldset class="ai-block" data-index="${i}"><legend>Part ${i+1}</legend><div class="ai-block-tools"><label>Content<select data-ai-field="kind"><option value="text"${b.kind==='text'?' selected':''}>Reflowed text</option><option value="image"${b.kind==='image'?' selected':''}>Original image</option></select></label><label>Source<select data-ai-field="source">${editor.assets.map((_,j)=>`<option value="${j}"${b.source===j?' selected':''}>Selection ${j+1}</option>`).join('')}</select></label><button class="button small" data-ai-action="up" aria-label="Move part ${i+1} up" ${i===0?'disabled':''}>↑</button><button class="button small" data-ai-action="down" aria-label="Move part ${i+1} down" ${i===editor.plan.blocks.length-1?'disabled':''}>↓</button><button class="button small" data-ai-action="remove" aria-label="Remove part ${i+1}">Remove</button></div>${b.kind==='text'?`<label>Exact wording<textarea rows="4" data-ai-field="text" maxlength="6000">${escape(b.text)}</textarea></label>`:''}<div class="coordinates">${[['x','Left'],['y','Top'],['w','Width'],['h','Height']].map(([f,label])=>`<label>${label} %<input type="number" data-ai-field="${f}" value="${+(b.rect[f]*100).toFixed(4)}" min="0" max="100" step="0.1"></label>`).join('')}</div></fieldset>`).join('');
+  $('#ai-adjustments').hidden=false;
+  aiControls(editor);
+}
+function aiDirty(editor) {
+  editor.dirty=true;editor.draft=null;editor.pdf=null;
+  $('#ai-preview-pages').replaceChildren();
+  $('#ai-review-status').textContent='Changes are not yet previewed. Choose Update preview before applying.';
+  aiControls(editor);
+}
+async function openAiEditor(problem=null) {
+  if(state.busy||aiEditor||(!problem&&(!state.crop||state.crop.regionId||!source())))return;
+  const original=problem?(problem.aiOriginal||{...problem,regions:[...problem.regions]}):null;
+  const editor={problemId:problem?.id,original,crop:state.crop?{...state.crop,rect:{...state.crop.rect}}:null,
+    options:settings(),defaults:{...(problem||state.defaults)},assets:null,images:null,plan:null,draft:null,pdf:null,
+    available:false,busy:true,dirty:true,controller:new AbortController()};
+  aiEditor=editor;
+  $('#ai-status').textContent='Preparing the original selection…';
+  $('#ai-setup').hidden=true;$('#ai-results').hidden=true;$('#ai-adjustments').hidden=true;$('#ai-adjustments').open=false;
+  for(const id of ['#ai-originals','#ai-preview-pages','#ai-blocks','#ai-warnings'])$(id).replaceChildren();
+  $('#ai-usage').textContent='';$('#ai-review-status').textContent='';
+  $('#ai-apply').textContent=problem?'Replace problem':'Add problem';
+  $('#ai-run').textContent='Generate with AI';
+  aiControls(editor);$('#ai-dialog').showModal();
+  if(location.protocol!=='http:'||location.hostname!=='localhost') {
+    editor.busy=false;$('#ai-status').textContent='AI formatting is available in the local app. Manual tools still work here.';$('#ai-setup').hidden=false;aiControls(editor);return;
+  }
+  const input=source(),pageNumber=state.page;
+  try {
+    if(original&&original.regions.length>6)throw new Error('AI can format up to six original regions together. Use fewer regions or keep this problem as manual crops.');
+    editor.assets=original?[...original.regions]:[await cropRegion(input,pageNumber,editor.crop.rect)];
+    if(aiEditor!==editor)return;
+    editor.images=[];
+    for(const asset of editor.assets){editor.images.push(await aiImage(asset));if(aiEditor!==editor)return;}
+    aiOriginals(editor);
+    const response=await fetch('/api/ai/status',{signal:AbortSignal.any([editor.controller.signal,AbortSignal.timeout(8000)])});
+    if(!response.ok)throw new Error('The local AI helper is unavailable. Restart the app with npm start.');
+    const status=await response.json();if(aiEditor!==editor)return;
+    editor.available=status.available===true;
+    $('#ai-status').textContent=editor.available?`Ready · ${status.model}. Generate will send ${editor.assets.length} selected image${editor.assets.length===1?'':'s'}.`:(status.message||'Set OPENAI_API_KEY in .env and restart the local app.');
+    $('#ai-setup').hidden=editor.available;
+  } catch(error) {
+    if(aiEditor!==editor)return;
+    $('#ai-status').textContent=error.message||'Could not prepare the selection.';
+    $('#ai-setup').hidden=true;
+  } finally {editor.busy=false;aiControls(editor);}
+}
+async function aiBuildPreview(editor) {
+  const plan=validateAiPlan(editor.plan,editor.assets.length);
+  const width=(PAPER[editor.options.paper]||PAPER.letter)[0]-editor.options.margin*2;
+  const regions=[];
+  for(const block of plan.blocks) {
+    if(aiEditor!==editor)return;
+    const region=block.kind==='text'?await textRegion(block.text,width):await cropAssetRegion(editor.assets[block.source],block.rect);
+    if(block.kind==='text')region.sourceName='AI-formatted text';
+    regions.push(region);
+  }
+  if(aiEditor!==editor)return;
+  const original=editor.original||{id:uid(),regions:[...editor.assets],...state.defaults};
+  const draft={id:editor.problemId||original.id,regions,space:editor.defaults.space,pageBreak:editor.defaults.pageBreak,scale:100,fit:'flow',aiOriginal:original};
+  const problems=editor.problemId?state.problems.map(p=>p.id===editor.problemId?draft:p):[...state.problems,draft];
+  const result=await createWorksheet(problems,editor.options);
+  const container=document.createElement('div');
+  const previewInfo=await renderPreview(result.bytes,container);
+  if(aiEditor!==editor)return;
+  if(previewInfo?.reducedResolution)result.layout.warnings.push({kind:'preview',message:'Preview resolution was reduced. Export keeps the original crop resolution.'});
+  editor.plan=plan;editor.draft=draft;editor.pdf=result;editor.dirty=false;
+  $('#ai-preview-pages').replaceChildren(...container.childNodes);$('#ai-results').hidden=false;
+  $('#ai-warnings').innerHTML=[...plan.warnings,...result.layout.warnings.map(w=>w.message)].map(w=>`<div class="warning">${escape(w)}</div>`).join('');
+  $('#ai-review-status').textContent='Check the proposal against the original. Nothing in the worksheet changes until you apply it.';
+  aiOriginals(editor);aiControls(editor);
+}
+$('#ai-format').addEventListener('click',()=>openAiEditor());
+for(const id of ['#ai-cancel','#ai-close'])$(id).addEventListener('click',()=>$('#ai-dialog').close());
+$('#ai-dialog').addEventListener('close',()=>{aiEditor?.controller.abort();aiEditor=null;});
+$('#ai-run').addEventListener('click',async()=>{
+  const editor=aiEditor;if(!editor||editor.busy||!editor.available)return;
+  editor.busy=true;aiDirty(editor);$('#ai-warnings').replaceChildren();
+  $('#ai-status').textContent='AI is separating the problem… You can cancel while it works.';
+  $('#ai-review-status').textContent='';
+  try {
+    const response=await fetch('/api/ai/format',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({images:editor.images}),signal:AbortSignal.any([editor.controller.signal,AbortSignal.timeout(130000)])});
+    const result=await response.json();
+    if(aiEditor!==editor)return;
+    if(!response.ok)throw new Error(result.error||'AI formatting failed. Try again or use manual crops.');
+    editor.plan=validateAiPlan(result.plan,editor.assets.length);
+    $('#ai-status').textContent=`Building the PDF proposal · ${result.model||'OpenAI'}`;
+    $('#ai-usage').textContent=Number.isFinite(result.usage?.inputTokens)&&Number.isFinite(result.usage?.outputTokens)
+      ?`This request: ${result.usage.inputTokens.toLocaleString()} input tokens · ${result.usage.outputTokens.toLocaleString()} output tokens. Another Generate request incurs another API charge.`:'';
+    aiBlocks(editor);await aiBuildPreview(editor);
+    if(aiEditor===editor){$('#ai-status').textContent='Proposal ready. Review it below.';$('#ai-run').textContent='Generate again';}
+  } catch(error) {
+    if(aiEditor!==editor)return;
+    $('#ai-status').textContent=error.message||'AI formatting failed. Your original problem is unchanged.';
+    $('#ai-review-status').textContent='Nothing was applied. Cancel to keep working manually, or try again.';
+  } finally {editor.busy=false;aiControls(editor);}
+});
+$('#ai-blocks').addEventListener('input',e=>{
+  const editor=aiEditor,field=e.target.dataset.aiField;if(!editor||editor.busy||!field)return;
+  const block=editor.plan.blocks[Number(e.target.closest('.ai-block').dataset.index)];
+  if(field==='text')block.text=e.target.value;
+  else if(['x','y','w','h'].includes(field))block.rect[field]=e.target.value===''?NaN:Number(e.target.value)/100;
+  else if(field==='source')block.source=Number(e.target.value);
+  else if(field==='kind'){block.kind=e.target.value;block.text='';}
+  aiDirty(editor);if(field==='kind')aiBlocks(editor);
+});
+$('#ai-blocks').addEventListener('click',e=>{
+  const editor=aiEditor,button=e.target.closest('[data-ai-action]');if(!editor||editor.busy||!button)return;
+  const i=Number(button.closest('.ai-block').dataset.index),blocks=editor.plan.blocks,action=button.dataset.aiAction;
+  if(action==='remove')blocks.splice(i,1);
+  else {const j=i+(action==='up'?-1:1);if(j>=0&&j<blocks.length)[blocks[i],blocks[j]]=[blocks[j],blocks[i]];}
+  aiDirty(editor);aiBlocks(editor);
+});
+$('#ai-add-block').addEventListener('click',()=>{
+  const editor=aiEditor;if(!editor||editor.busy||!editor.plan||editor.plan.blocks.length>=24)return;
+  editor.plan.blocks.push({kind:'image',source:0,rect:{x:0,y:0,w:1,h:1},text:''});aiDirty(editor);aiBlocks(editor);
+});
+$('#ai-refresh').addEventListener('click',async()=>{
+  const editor=aiEditor;if(!editor||editor.busy||!editor.plan)return;
+  editor.busy=true;aiDirty(editor);$('#ai-review-status').textContent='Updating the PDF preview locally…';
+  try {await aiBuildPreview(editor);}
+  catch(error){if(aiEditor===editor)$('#ai-review-status').textContent=error.message||'Could not update the preview. Check your adjustments.';}
+  finally {editor.busy=false;aiControls(editor);}
+});
+$('#ai-apply').addEventListener('click',()=>{
+  const editor=aiEditor;if(!editor||editor.busy||editor.dirty||!editor.draft||!editor.pdf)return;
+  if(editor.problemId){const i=state.problems.findIndex(p=>p.id===editor.problemId);if(i<0)return;state.problems[i]=editor.draft;}
+  else state.problems.push(editor.draft);
+  state.selected=editor.draft.id;
+  if(!editor.problemId&&editor.crop?.suggestionId)state.suggestions=state.suggestions.filter(s=>s.id!==editor.crop.suggestionId);
+  state.crop=null;dirty();renderQueue();renderCropEditor();renderSuggestions();
+  presentPreview(editor.pdf,$('#ai-preview-pages'));
+  $('#ai-dialog').close();
+  tell('AI formatting applied. Writing space is preserved. Use Restore original on the problem card to undo it.');
+});
 
 for(const id of ['#upload-button','#choose-file-button'])$(id).addEventListener('click',()=>$('#file-input').click());
 $('#file-input').addEventListener('change',async e=>{await addFiles([...e.target.files]);e.target.value='';});
@@ -227,6 +382,8 @@ $('#problem-list').addEventListener('click',async e=>{
   if(action==='reset-scale'){p.scale=100;state.defaults.scale=100;rememberSettings();dirty();renderQueue();return;}
   if(action==='edit-region'){await editRegion(p,btn.dataset.region);return;}
   if(action==='edit-text'){const r=p.regions.find(r=>r.id===btn.dataset.region);if(typeof r?.text==='string'){renderQueue();openTextEditor({text:r.text,problemId:p.id,regionId:r.id});}return;}
+  if(action==='ai-format'){renderQueue();await openAiEditor(p);return;}
+  if(action==='restore-original'&&p.aiOriginal){state.problems[index]={...p.aiOriginal,regions:[...p.aiOriginal.regions]};state.crop=null;dirty();renderQueue();renderCropEditor();tell('Original problem and its settings restored.');return;}
   if(action==='up'||action==='down'){const j=index+(action==='up'?-1:1);if(j>=0&&j<state.problems.length)[state.problems[index],state.problems[j]]=[state.problems[j],state.problems[index]];}
   if(action==='remove')state.problems.splice(index,1);
   if(action==='remove-region'){p.regions=p.regions.filter(r=>r.id!==btn.dataset.region);if(!p.regions.length)state.problems.splice(index,1);}

@@ -34,6 +34,7 @@ const modules = {
   layout: await base64('src/layout.js'),
   detection: await base64('src/detection.js'),
   textExtraction: await base64('src/text-extraction.js'),
+  aiPlan: await base64('src/ai-plan.js'),
   preferences: await base64('src/preferences.js'),
   engine: await base64('src/pdf-engine.js'),
   app: await base64('src/app.js'),
@@ -54,6 +55,7 @@ try {
   const layoutURL = moduleURL(decode(payload.modules.layout));
   const detectionURL = moduleURL(decode(payload.modules.detection));
   const textExtractionURL = moduleURL(decode(payload.modules.textExtraction));
+  const aiPlanURL = moduleURL(decode(payload.modules.aiPlan));
   const preferencesURL = moduleURL(decode(payload.modules.preferences));
   const workerPrefix = 'const marginAssets = ' + JSON.stringify(payload.assets) + ';\n' +
     'function marginReadAsset(url) { if (typeof url !== "string" || !url.startsWith("margin-asset:/")) return null; const key=url.slice("margin-asset:/".length); const encoded=marginAssets[key]; if (!encoded) throw new Error("Missing embedded PDF resource: "+key); return Uint8Array.from(atob(encoded), c=>c.charCodeAt(0)); }\n' +
@@ -69,6 +71,7 @@ try {
   const appURL = moduleURL(decode(payload.modules.app)
     .replace("'./pdf-engine.js'", JSON.stringify(engineURL))
     .replace("'./layout.js'", JSON.stringify(layoutURL))
+    .replace("'./ai-plan.js'", JSON.stringify(aiPlanURL))
     .replace("'./preferences.js'", JSON.stringify(preferencesURL)));
   await import(appURL);
   const download = document.getElementById('download-html');

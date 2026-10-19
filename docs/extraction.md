@@ -1,6 +1,20 @@
-# Question suggestions and prose extraction
+# Question extraction and optional AI formatting
 
-Question suggestions propose **crop rectangles**. Review each rectangle against the source page before adding it. Source crops remain the default and preserve visible content, including the original fonts, boldness, line breaks, equations, and diagrams. A good number match does not prove that a crop contains the whole question. Optional prose reflow uses a separate text-review workflow.
+Local question suggestions propose **crop rectangles**. Review each rectangle against the source page before adding it. Source crops preserve visible content, including the original fonts, boldness, line breaks, equations, and diagrams. A good number match does not prove that a crop contains the whole question. Manual prose reflow and optional AI formatting use separate review workflows.
+
+## Optional whole-problem AI formatting
+
+Select the whole problem in one crop, or use **Format with AI** on a saved problem to include its original regions, up to six at once. **Generate with AI** sends the selected images and any saved text to OpenAI through a localhost helper. Fresh PDF crops are sent as images; existing saved text regions can also supply text hints. The proposal separates prose from mathematical or diagram regions without requiring a manual split first.
+
+The app renders proposed prose as normal text and takes image regions from the original content. Review the worksheet PDF beside the originals. **Adjust text or image boundaries** allows text, crop, order, and content-type corrections; **Update preview** rebuilds the PDF locally before **Add problem** or **Replace problem** can apply the edited proposal. Original pixels in an image region do not guarantee that its proposed bounds include every symbol. **Restore original** restores the formatted card's original regions and settings; formatting it again also starts from those original regions.
+
+AI-formatted problems use 100% scale and continuation mode. New problems retain remembered writing-height and page-break defaults, and replacements preserve those values from the selected card. Proposed prose is rendered at the current printable width; later paper or margin changes require **Edit text** and **Save text** to rewrap saved prose.
+
+`src/ai-plan.js` defines a strict plan of prose blocks and original-image rectangles, with normalized top-left bounds and explicit source indices. It permits at most 24 blocks across six sources, with 6,000 characters per text block and 16,000 total text characters. The prompt asks for original wording, labels, reading order, and complete-once coverage, without solving or rewriting the problem. Validation checks shape, limits, and bounds; it cannot prove that the content is complete or faithful.
+
+Images sent for recognition are local previews limited to a 1,600-pixel longest side and two megapixels, without upscaling. Retained math and diagram regions are cropped from the original PNG pixels, not these smaller previews. Crop boundaries round to source pixels, preserving the crop's original print scale and proportions. No AI-generated mathematical image is used.
+
+AI image input does not require a PDF text layer, but recognition and region selection can be wrong. Live model quality, latency, and cost have not been verified because the recorded checks used no live API key. Mock-response tests verify integration behavior, not model accuracy. See [local AI setup](../README.md#optional-ai-formatting).
 
 ## Numbered-question suggestions
 
@@ -39,12 +53,14 @@ The detector intentionally supports ordinary one- and two-column worksheets rath
 
 The last crop may include a footer. A question whose diagram extends above its number or into the adjacent column may need a wider/taller manual crop. An extraction label is only a short navigation aid; it is never substituted for the original page content.
 
-## No AI or OCR dependency
+## Local manual tools and networked AI
 
-Question suggestions and prose extraction use only the existing PDF text layer and local geometry rules. No model, inference API, account, token, or AI download is present. The standalone HTML embeds its PDF libraries and supporting resources, and works offline after download. Scanned pages without a text layer remain available through manual crops and typed prose.
+Question suggestions and **Reflow selected text** use the existing PDF text layer and local geometry rules. These manual tools need no model, inference API, account, or key. The standalone HTML embeds its PDF libraries and supporting resources and supports the manual workflow offline. Scanned pages without a text layer remain available through manual crops and typed prose.
+
+**Format with AI** is a separate optional OpenAI integration. It requires the localhost helper and a server-side API key. Selected images and text leave the computer when **Generate with AI** is used. Keep the key out of the browser, generated HTML, and repository.
 
 ## Validation
 
 Run `node --test tests/detection.test.mjs`. The tests cover standard labels, split PDF runs, two-column geometry, subparts, inline references, decimals, duplicate text, invalid inputs, crop bounds, and coordinate scaling. An integration test extracts actual PDF.js text from the bundled sample: its three native pages yield 3, 4, and 2 suggestions, and its image-only scan yields none. These tests validate behavior on known examples, not a general extraction accuracy rate. Real source pages and every suggested crop still require visual review.
 
-The prose extractor has a separate suite at `tests/text-extraction.test.mjs`, included in `npm test`; `npm run test:text` exercises the review-to-export workflow in a browser. Both source and offline prose suites passed eight stages, including reviewed extraction, editing, mixed text/image questions, continuation, and manual scan/image entry. Each run checked seven exported pages against the preview, with zero HTTP/HTTPS requests in the offline run. See [testing notes](testing.md) for current results and limits.
+The prose extractor has a separate suite at `tests/text-extraction.test.mjs`, included in `npm test`; `npm run test:text` exercises the manual review-to-export workflow in a browser. `tests/ai-plan.test.mjs` checks the pure AI proposal contract, while `npm run test:ai` uses mocked helper responses for browser integration and checks the offline setup fallback. See [testing notes](testing.md) for recorded results and the distinction between mocked integration and live inference.

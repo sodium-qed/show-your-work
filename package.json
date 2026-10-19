@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "AI-free browser math worksheet formatter, with a standalone offline HTML file.",
+  "description": "Browser math worksheet formatter with offline HTML and optional AI formatting through a local helper.",
   "engines": {
     "node": ">=22"
   },
@@ -16,7 +16,8 @@
     "test:e2e": "node tests/e2e.mjs",
     "build:html": "node scripts/build-html.mjs",
     "test:ui": "node tests/preferences-shortcuts.e2e.mjs",
-    "test:text": "node tests/reflow-text.e2e.mjs"
+    "test:text": "node tests/reflow-text.e2e.mjs",
+    "test:ai": "node tests/ai-format.e2e.mjs"
   },
   "dependencies": {
     "pdf-lib": "1.17.1",

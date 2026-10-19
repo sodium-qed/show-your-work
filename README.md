@@ -2,19 +2,19 @@
 
 A tool that reformats math problems into clean, printable worksheets with space to write solutions 和 show work.
 
-The app, called Margin, is an AI-free math worksheet studio packaged as a self-contained HTML file. Open it in a browser, select questions from PDFs or images, combine questions that span pages, and arrange them with blank writing space in a printable PDF. The print preview renders the same PDF bytes used for export.
+The app, called Margin, turns selected questions into printable worksheets with space for written work. Its manual tools run in a self-contained HTML file. Optional AI formatting runs through a local OpenAI helper: select a whole problem, review the proposed result, and keep equations and diagrams as original image crops. The print preview renders the same PDF bytes used for export.
 
 ## Open the HTML file
 
-Download [`margin.html`](https://github.com/sodium-qed/show-your-work/raw/refs/heads/main/margin.html) (or open its GitHub file page and click **Download raw file**), then double-click it or use **Open file** in a supported modern Chromium browser, such as Chrome or Edge. The hosted copy also offers an **HTML file** download button. The downloaded file runs offline through `file://`. No installation, local server, account, API key, or internet connection is needed to use it.
+Download [`margin.html`](https://github.com/sodium-qed/show-your-work/raw/refs/heads/main/margin.html) (or open its GitHub file page and click **Download raw file**), then double-click it or use **Open file** in a supported modern Chromium browser, such as Chrome or Edge. The hosted copy also offers an **HTML file** download button. Manual cropping, prose reflow, layout, and export run offline through `file://`, without installation, a server, an account, or an API key. AI formatting requires the local setup below.
 
-The HTML is approximately **7.73 MiB** and embeds the application, PDF libraries, PDF worker, standard fonts, character maps, WebAssembly assets, and sample PDF. Keep the complete file when copying it to another computer.
+The HTML is approximately **7.77 MiB** and embeds the application, PDF libraries, PDF worker, standard fonts, character maps, WebAssembly assets, and sample PDF. Keep the complete file when copying it to another computer.
 
 The root `index.html` and `margin.html` are identical, committed standalone files. `src/index.html` is the development template. Builds regenerate both root files and their identical copies in `dist/`. The root is also ready for static hosting, including GitHub Pages; enabling Pages is a separate repository setting. No hosted GitHub Pages URL is assumed in this README.
 
-## Develop or rebuild
+## Run locally or rebuild
 
-Editing or rebuilding the application requires Node.js 22 or later and npm. From the source project directory:
+The local server, optional AI helper, and build tools require Node.js 22 or later and npm. From the source project directory:
 
 ```bash
 npm ci
@@ -38,7 +38,29 @@ To regenerate only the standalone HTML package:
 npm run build:html
 ```
 
-The server binds to `localhost` by default. `PORT` and `HOST` can override the listen address; for example, `PORT=4174 npm start` on a POSIX shell. This is a static local development and preview server.
+The server binds to `localhost` by default. `PORT` and `HOST` can override the listen address; for example, `PORT=4174 npm start` on a POSIX shell. AI formatting is disabled when `HOST` is anything other than `localhost`.
+
+## Optional AI formatting
+
+Copy `.env.example` to `.env` in the project directory and set the server's API key:
+
+```dotenv
+OPENAI_API_KEY=your_openai_api_key
+# Optional; this is the default model:
+OPENAI_MODEL=gpt-5.6-terra
+```
+
+Keep `.env` out of commits. The key belongs only in the local helper's environment, never in HTML, browser storage, or client code; see OpenAI's [API key guidance](https://developers.openai.com/api/reference/overview#authentication). Start or restart `npm start` after changing these values, then open [http://localhost:4173](http://localhost:4173). The standalone HTML and static hosted copy show local setup instructions and retain the manual tools without a key.
+
+1. Select a crop containing the **whole problem**, or use **Format with AI** on an existing problem card to include its original regions, up to six at once.
+2. Choose **Generate with AI** to send the selected images and any saved text through the local helper to OpenAI. Review the original beside the proposed worksheet PDF, which includes other queued problems and their writing space.
+3. If needed, open **Adjust text or image boundaries**, correct the proposal, and choose **Update preview**. These edits and preview updates stay local. Choose **Add problem** or **Replace problem** only after reviewing the result.
+
+Formatting uses **100%** scale and **Continue onto next page**, keeping the writing-height and page-break defaults for a new problem or the existing values for a replacement. Equations and diagrams are cropped from the original pixels, without generating replacement images. **Restore original** on a formatted card restores its original regions and settings. Reformatting that card starts from those original regions again.
+
+The AI proposes the separation of prose and mathematical content, so the workflow does not require manually splitting each part first. Check wording, symbols, missing content, and crop boundaries before applying the proposal. Cancel leaves the worksheet unchanged; another **Generate again** request can incur another API charge.
+
+API usage is [billed separately from a ChatGPT subscription](https://help.openai.com/en/articles/9039756-managing-billing-for-chatgpt-and-the-api-platform). On October 19, 2026, [GPT-5.6 Terra's listed rates](https://developers.openai.com/api/docs/models/gpt-5.6-terra) were **$2 per million input tokens** and **$12 per million output tokens**. A hypothetical request with 3,000 input tokens and 1,000 output tokens costs **$0.018**, without assuming caching. This is not a measured per-problem price: image input and reasoning tokens affect usage. Live inference quality, latency, and cost have not been measured in the recorded verification; mock responses exercise the integration only.
 
 ## Worksheet workflow
 
@@ -70,7 +92,7 @@ Shortcuts are inactive while typing in a field, a dialog is open, processing is 
 
 Ordinary problems stay together when their content and requested writing space fit a page. Larger problems continue onto subsequent pages with the requested writing height preserved exactly. **Fit to one page** shrinks question content when the requested writing space leaves enough room; it cannot make writing space longer than the usable page height fit on one page. Balanced spacing is applied afterward. Inspect the result for readability.
 
-## Reflow dense directions
+## Manual prose reflow
 
 A source crop is an image: it keeps the original boldness, line breaks, and spacing inside the paragraph. **Page spacing** changes the blank room outside that image. To reformat prose directions:
 
@@ -106,11 +128,15 @@ Changing a problem's writing height, scale, overflow mode, or page-break setting
 - **Oversized crops:** the layout prefers whitespace when splitting a tall crop across pages, but may cut through content when no suitable whitespace is available. Split the source into smaller regions, reduce scale, or use **Fit to one page** as appropriate.
 - **Session lifetime:** imported sources, selections, and problem cards are held in memory and cleared on refresh or tab closure. Only worksheet preferences and defaults are saved locally. There is no project save/reopen format.
 
-There is no AI model, AI service, or OCR implementation. Manual selection, reviewed text, and ordinary text-layer rules provide the complete workflow, including PDF export. Scans without an existing text layer use manual crops or manually typed prose.
+Manual selection, reviewed text, and numbered-question suggestions need no AI service or OCR. Scans without a text layer can use manual crops or typed prose. Optional AI formatting can receive the selected images through the local helper, including when no PDF text layer is available; its proposal still needs review.
 
 ## Privacy and dependencies
 
-Selected files and pasted text are processed in the browser. Only the preferences described above are stored in `localStorage`; source files, crop images, and problem text are not saved there. The application has no upload endpoint, account system, analytics, cloud inference, or API-key requirement. In the standalone HTML, PDF.js, pdf-lib, and their runtime assets are embedded; no CDN, remote font, external script, or server request is required. The hosted copy uses the same browser-side processing, without sending the selected files to a server.
+Manual work is processed in the browser. Only the preferences described above are stored in `localStorage`; source files, crop images, and problem text are not saved there. The standalone HTML embeds PDF.js, pdf-lib, and their runtime assets, so manual use needs no CDN, remote font, external script, or server request. The static hosted copy uses the same local manual processing.
+
+**Generate with AI** sends the selected images and text to OpenAI through the localhost helper. This is the optional networked path; its API key stays on the server. Opening a source or using manual crop/reflow tools does not request AI formatting. Review the selected content before generating, and use the manual workflow for content that should remain local.
+
+The helper uses the Responses API with `store: false`. This does not guarantee zero retention: OpenAI's [API data controls](https://developers.openai.com/api/docs/guides/your-data) describe abuse-monitoring retention and other applicable exceptions.
 
 Installing development dependencies with `npm ci` requires access to the npm registry unless the packages are already cached. This installation step applies to source development and rebuilding, not to opening the downloaded HTML.
 
@@ -134,7 +160,9 @@ Dependency versions are pinned in `package.json` and `package-lock.json`.
 | `src/layout.js` | Page layout and writing-space allocation in PDF points |
 | `src/detection.js` | Conservative suggestions from numbered PDF text |
 | `src/text-extraction.js` | A reviewable prose draft from selected PDF text, with boundary and reading-order warnings |
-| `scripts/serve.mjs` | Local static development and build-preview server |
+| `src/ai-plan.js` | Shared AI proposal schema, prompt, and structural/bounds validation |
+| `scripts/ai-service.mjs` | Local OpenAI helper with server-only credentials and validated requests/responses |
+| `scripts/serve.mjs` | Local development and build-preview server, including the optional AI endpoints |
 | `scripts/build.mjs` | Rebuilds standalone HTML for download and static hosting |
 | `scripts/build-html.mjs` | Packages the source modules, PDF libraries, worker, resources, sample, and license notices into standalone HTML |
 | `public/samples/` | Bundled demonstration material |
@@ -147,6 +175,7 @@ npm test
 npm run test:e2e
 npm run test:ui
 npm run test:text
+npm run test:ai
 ```
 
 Browser checks require a compatible Playwright Chromium installation. See [testing notes](docs/testing.md) for setup, coverage, and recorded results. Source extraction behavior and limits are documented in [extraction notes](docs/extraction.md).
