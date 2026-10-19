@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
-import { PDFDocument } from 'pdf-lib';
+import { PDFDocument, PDFRef, decodePDFRawStream } from 'pdf-lib';
 import { imageClipIntervals } from './helpers/pdf-inspection.mjs';
 
 // These are real browser workflows: no app state injection, network mocks, or
@@ -80,6 +81,7 @@ async function fresh() {
   await page.locator('#empty-source').waitFor({ state: 'visible' });
   assert.equal(await page.locator('#problem-count').textContent(), '0');
   assert.equal(await page.locator('#number-problems').isChecked(), false, 'Fresh worksheets preserve original source numbering by default.');
+  assert.equal(await page.locator('#page-spacing').inputValue(), 'balanced', 'Fresh worksheets distribute spare page space by default.');
 }
 
 async function upload(path) {
@@ -205,8 +207,10 @@ async function exactPreview(bytes) {
         let mismatched = 0; let ink = 0;
         for (let pixel = 0; pixel < left.length; pixel++) if (left[pixel] !== right[pixel]) mismatched++;
         for (let pixel = 0; pixel < right.length; pixel += 4) if (Math.min(right[pixel], right[pixel + 1], right[pixel + 2]) < 180) ink++;
-        const generatedLabels = (await source.getTextContent()).items.map(item => item.str).filter(text => /^\d+\.(?: \(continued\))?$/.test(text));
-        pages.push({ number: index + 1, width: expected.width, height: expected.height, mismatched, ink, generatedLabels });
+        const text = (await source.getTextContent()).items.map(item => item.str);
+        const generatedLabels = text.filter(text => /^\d+\.(?: \(continued\))?$/.test(text));
+        const renderHash = [...new Uint8Array(await crypto.subtle.digest('SHA-256', right))].map(value => value.toString(16).padStart(2, '0')).join('');
+        pages.push({ number: index + 1, width: expected.width, height: expected.height, mismatched, ink, generatedLabels, continued: text.includes('Continued'), renderHash });
         expected.width = expected.height = 1;
       }
       return { pages: pdf.numPages, shown: canvases.length, equal: pages.every(item => item.mismatched === 0), detail: pages };
@@ -216,6 +220,42 @@ async function exactPreview(bytes) {
   assert.ok(comparison.detail.every(item => item.ink > 100), 'Every exported page contains rendered content.');
   assert.ok(comparison.detail.every(item => item.generatedLabels.length === 0), 'Default exports add no duplicate numeric question labels.');
   return comparison;
+}
+
+function exportedGeometry(pdf) {
+  const rectangles = [];
+  for (const [index, pdfPage] of pdf.getPages().entries()) {
+    const contents = pdfPage.node.Contents();
+    for (let i = 0; i < contents.size(); i++) {
+      const operators = Buffer.from(decodePDFRawStream(pdf.context.lookup(contents.get(i))).decode()).toString();
+      for (const match of operators.matchAll(/^([-\d.]+) ([-\d.]+) ([-\d.]+) ([-\d.]+) re$/gm)) {
+        const [x, y, width, height] = match.slice(1).map(Number);
+        rectangles.push({ page: index + 1, x, y, width, height });
+      }
+    }
+  }
+  const intervals = imageClipIntervals(pdf);
+  assert.equal(rectangles.length, intervals.length, 'Every exported crop rectangle has a source-image placement.');
+  return rectangles.map((rectangle, index) => {
+    const source = intervals[index];
+    assert.equal(rectangle.page, source.page);
+    const [number, generation] = source.image.split(' ').map(Number);
+    const image = pdf.context.lookup(PDFRef.of(number, generation));
+    return { ...rectangle, sourceTop: source.sourceTop, sourceHeight: source.sourceHeight,
+      pixelWidth: source.pixelWidth, pixelHeight: source.pixelHeight,
+      imageHash: createHash('sha256').update(image.getContents()).digest('hex') };
+  });
+}
+
+function sameCropGeometry(actual, expected, { includeY = false } = {}) {
+  assert.equal(actual.length, expected.length, 'Spacing preserves the number and order of exported source clips.');
+  for (const [index, crop] of actual.entries()) {
+    const original = expected[index];
+    for (const field of ['page', 'pixelWidth', 'pixelHeight', 'imageHash']) assert.equal(crop[field], original[field], `Spacing preserves crop ${index + 1} ${field}.`);
+    for (const field of ['x', 'width', 'height', 'sourceTop', 'sourceHeight', ...(includeY ? ['y'] : [])]) {
+      assert.ok(Math.abs(crop[field] - original[field]) < 1e-7, `Spacing preserves crop ${index + 1} ${field}.`);
+    }
+  }
 }
 
 function crop(id) {
@@ -374,6 +414,94 @@ async function mainWorkflow() {
   });
 }
 
+async function spacingWorkflow() {
+  await step('Balanced spacing spreads unequal PDF and image crops without resizing or changing continuation pages', async () => {
+    await fresh();
+    await upload('public/samples/sample.pdf');
+    const first = await addCrop({ x: 0.08, y: 0.19, w: 0.5, h: 0.2 });
+    await field(first, 'space', 0); await field(first, 'scale', 75);
+    const second = await addCrop({ x: 0.08, y: 0.42, w: 0.3, h: 0.12 });
+    await field(second, 'space', 0); await field(second, 'scale', 100);
+    await upload('public/samples/example.png');
+    const third = await addCrop({ x: 0.05, y: 0.08, w: 0.55, h: 0.22 });
+    await field(third, 'space', 0); await field(third, 'scale', 100);
+    for (const id of [first, second, third]) {
+      assert.equal(await card(id).locator('[data-field="space"]').inputValue(), '0');
+      assert.equal(await card(id).locator('[data-field="fit"]').inputValue(), 'flow');
+    }
+
+    assert.equal(await preview(), 1);
+    const balanced = await exportPdf('spacing-balanced.pdf');
+    const balancedCrops = exportedGeometry(balanced.pdf);
+    const balancedPixels = await exactPreview(balanced.bytes);
+    await page.screenshot({ path: resolve(output, 'spacing-balanced.png'), fullPage: true });
+    await page.locator('#back-to-edit').click();
+    await page.locator('#page-spacing').selectOption('compact');
+    // Export immediately after changing a setting to verify that an already
+    // rendered preview cannot leave the downloaded file with stale spacing.
+    const compact = await exportPdf('spacing-compact.pdf', '#export-top');
+    await page.locator('#preview-tab').click(); await idle();
+    const compactPixels = await exactPreview(compact.bytes);
+    const compactCrops = exportedGeometry(compact.pdf);
+    assert.equal(balanced.pdf.getPageCount(), 1); assert.equal(compact.pdf.getPageCount(), 1);
+    sameCropGeometry(balancedCrops, compactCrops);
+    assert.equal(balancedCrops.length, 3);
+    const imagePointScale = Math.min(72 / 300, 540 / fixture.image.widthPx);
+    const expectedDimensions = [
+      [612 * 0.5 * 0.75, 792 * 0.2 * 0.75],
+      [612 * 0.3, 792 * 0.12],
+      [fixture.image.widthPx * imagePointScale * 0.55, fixture.image.heightPx * imagePointScale * 0.22],
+    ];
+    for (const [index, crop] of balancedCrops.entries()) {
+      assert.equal(crop.page, 1);
+      assert.ok(Math.abs(crop.width - expectedDimensions[index][0]) < 1e-7, 'Balanced spacing never shrinks a question to redistribute blank space.');
+      assert.ok(Math.abs(crop.height - expectedDimensions[index][1]) < 1e-7);
+      assert.ok(Math.abs(crop.width / crop.height - crop.pixelWidth / crop.pixelHeight) < 0.005, 'Uploaded images and PDF crops retain their original aspect ratios.');
+    }
+    assert.equal(new Set(balancedCrops.map(crop => crop.height.toFixed(4))).size, 3, 'The spacing fixture has three unequal question heights.');
+
+    // Zero requested writing space makes the added blank area observable in
+    // the PDF itself. Each complete problem receives one third of the spare
+    // space, while the original 10 pt between-problem gaps remain intact.
+    const printBottom = 36 + 18;
+    const extraPerProblem = (compactCrops.at(-1).y - printBottom) / 3;
+    assert.ok(extraPerProblem > 60, 'The fixture leaves enough spare space to expose clumped placement.');
+    const addedBlankAreas = [];
+    for (const [index, crop] of balancedCrops.entries()) {
+      assert.ok(Math.abs(crop.y - (compactCrops[index].y - index * extraPerProblem)) < 1e-7);
+      assert.ok(crop.y >= printBottom - 1e-7 && crop.y + crop.height <= 792 - (36 + 50) + 1e-7, 'Every question stays inside the printable page.');
+      const next = balancedCrops[index + 1];
+      const blank = next ? crop.y - next.y - next.height - 10 : crop.y - printBottom;
+      assert.ok(blank > 0, 'The balanced questions never overlap.');
+      assert.ok(Math.abs(blank - extraPerProblem) < 1e-7, 'Spare space is shared equally after all complete questions, including the last.');
+      addedBlankAreas.push(blank);
+    }
+    await page.screenshot({ path: resolve(output, 'spacing-compact.png'), fullPage: true });
+
+    // A writing-space continuation shares its second page with the other two
+    // questions. Both involved pages must remain exactly compact in either mode.
+    await page.locator('#back-to-edit').click(); await field(first, 'space', 10);
+    await page.locator('#page-spacing').selectOption('balanced');
+    assert.equal(await preview(), 2);
+    const continuedBalanced = await exportPdf('spacing-continuation-balanced.pdf');
+    const continuedBalancedPixels = await exactPreview(continuedBalanced.bytes);
+    assert.ok(continuedBalancedPixels.detail.some(item => item.continued), 'The continued writing space retains its visible continuation cue.');
+    await page.locator('#back-to-edit').click(); await page.locator('#page-spacing').selectOption('compact');
+    const continuedCompact = await exportPdf('spacing-continuation-compact.pdf', '#export-top');
+    await page.locator('#preview-tab').click(); await idle();
+    const continuedCompactPixels = await exactPreview(continuedCompact.bytes);
+    const continuationCrops = exportedGeometry(continuedBalanced.pdf);
+    assert.equal(continuedCompact.pdf.getPageCount(), 2);
+    assert.deepEqual(continuationCrops.map(crop => crop.page), [1, 2, 2]);
+    sameCropGeometry(continuationCrops, exportedGeometry(continuedCompact.pdf), { includeY: true });
+    assert.deepEqual(continuedBalancedPixels.detail, continuedCompactPixels.detail, 'Continuation pages retain their exact rendered content in both spacing modes.');
+    return { balancedPages: 1, compactPages: 1, balancedCrops, compactCrops, addedBlankAreas,
+      balancedPixelComparison: balancedPixels, compactPixelComparison: compactPixels,
+      continuationPages: 2, continuationCrops,
+      continuationBalancedPixelComparison: continuedBalancedPixels, continuationCompactPixelComparison: continuedCompactPixels };
+  });
+}
+
 async function oversizedWorkflow() {
   await step('Oversized source flows without clipping, then explicitly fits to one page', async () => {
     await fresh();
@@ -506,6 +634,7 @@ try {
   page.on('pageerror', error => browserErrors.push({ type: 'pageerror', message: error.message }));
   page.on('console', message => { if (message.type() === 'error') browserErrors.push({ type: 'console', message: message.text() }); });
   await mainWorkflow();
+  await spacingWorkflow();
   await oversizedWorkflow();
   await recoveryWorkflow();
   await step('No uncaught browser errors, failed requests, or external file uploads', async () => {

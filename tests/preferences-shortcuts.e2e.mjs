@@ -16,7 +16,7 @@ const target = new URL(origin);
 const offline = target.protocol === 'file:';
 const output = resolve(root, process.env.E2E_OUTPUT || (offline ? 'tests/output/preferences-offline' : 'tests/output/preferences'));
 const key = 'show-your-work.preferences.v1';
-const defaultWorksheet = { title: 'Math practice', paper: 'letter', margin: '36', nameLine: true, alignment: 'center', numbering: false };
+const defaultWorksheet = { title: 'Math practice', paper: 'letter', margin: '36', nameLine: true, alignment: 'center', numbering: false, spacing: 'balanced' };
 const defaultProblem = { space: 2, scale: 100, fit: 'flow', pageBreak: false };
 const results = [], errors = [], httpRequests = [], externalRequests = [];
 let browser, context, page, server;
@@ -129,6 +129,7 @@ const worksheet = () => page.evaluate(() => ({
   margin: document.querySelector('#page-margin').value, nameLine: document.querySelector('#name-line').checked,
   alignment: document.querySelector('#question-alignment').value,
   numbering: document.querySelector('#number-problems').checked,
+  spacing: document.querySelector('#page-spacing').value,
 }));
 const queueShape = () => cards().evaluateAll(nodes => nodes.map(node => ({ id: node.dataset.id, regions: node.querySelectorAll('.region-thumb').length })));
 async function noMutation(action, message) {
@@ -238,14 +239,17 @@ try {
     assert.equal(await cards().last().locator('.region-thumb').count(), 1);
   });
 
-  const preferredWorksheet = { title: 'Remember these settings', paper: 'a4', margin: '72', nameLine: false, alignment: 'left', numbering: true };
+  const preferredWorksheet = { title: 'Remember these settings', paper: 'a4', margin: '72', nameLine: false, alignment: 'left', numbering: true, spacing: 'compact' };
   await step('Defaults inherit through every creation path while existing cards stay independent', async () => {
     await fresh(); await upload(); const first = await addCrop();
+    assert.match(await card(first).locator('[data-field="space"]').evaluate(node => node.closest('label').textContent), /Minimum space/);
     for (const [name, value] of Object.entries({ space: 2.75, scale: 75, fit: 'shrink', pageBreak: true })) await field(first, name, value);
     await page.locator('#worksheet-title').fill(preferredWorksheet.title);
     await page.locator('#paper-size').selectOption('a4'); await page.locator('#page-margin').selectOption('72');
     await page.locator('#name-line').uncheck(); await page.locator('#question-alignment').selectOption('left');
     await page.locator('#number-problems').check();
+    await page.locator('#page-spacing').selectOption('compact');
+    assert.match(await card(first).locator('[data-field="space"]').evaluate(node => node.closest('label').textContent), /Writing space/);
     const second = await addCrop('p');
     assert.deepEqual(await values(second), { space: 2.75, scale: 75, fit: 'shrink', pageBreak: true });
     await field(second, 'scale', 125);
@@ -270,6 +274,7 @@ try {
 
   await step('Reload restores settings and future defaults without persisting worksheet files', async () => {
     await page.reload({ waitUntil: 'networkidle' });
+    await page.waitForFunction(() => document.querySelector('#settings-status')?.textContent.trim());
     assert.deepEqual(await worksheet(), preferredWorksheet);
     await count(0); assert.equal(await page.locator('#empty-source').isVisible(), true);
     assert.deepEqual(await values(await addText()), { space: 1, scale: 125, fit: 'shrink', pageBreak: true });
@@ -285,7 +290,9 @@ try {
     assert.deepEqual(await worksheet(), defaultWorksheet);
     for (const [id, value] of existing) assert.deepEqual(await values(id), value);
     assert.deepEqual(await values(await addText()), defaultProblem);
-    await page.reload({ waitUntil: 'networkidle' }); assert.deepEqual(await worksheet(), defaultWorksheet);
+    await page.reload({ waitUntil: 'networkidle' });
+    await page.waitForFunction(() => document.querySelector('#settings-status')?.textContent.trim());
+    assert.deepEqual(await worksheet(), defaultWorksheet);
     assert.deepEqual(await values(await addText()), defaultProblem);
   });
 
@@ -305,6 +312,9 @@ try {
 
   await step('Unequal crops share one centered column without stretching or duplicate default numbering', async () => {
     await fresh(); await upload(); const id = await addCrop(); await field(id, 'space', 0.5); await field(id, 'scale', 75);
+    // This legacy oracle measures requested writing space using the fixed
+    // inter-problem gap. Balanced spacing is compared independently in E2E.
+    await page.locator('#page-spacing').selectOption('compact');
     const second = await addCrop(undefined, { x: 0.08, y: 0.42, w: 0.3, h: 0.12 }); await field(second, 'scale', 100);
     const third = await addCrop(undefined, { x: 0.05, y: 0.025, w: 0.85, h: 0.95 });
     await field(third, 'fit', 'shrink'); await field(third, 'space', 6); await field(third, 'pageBreak', true);

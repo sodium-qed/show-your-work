@@ -149,6 +149,7 @@ export function planWorksheet(problems = [], settings = {}) {
     }
     y = Math.min(bottom, y + GAP);
   }
+  if (settings.spacing !== 'compact') balancePageSpacing(pages, bottom, margin, contentWidth);
   // One shared worksheet column keeps differently sized textbook crops on the
   // same left edge. Final rendered widths include every problem's fit factor;
   // changing alignment only changes x, never crop size or pagination.
@@ -163,6 +164,46 @@ export function planWorksheet(problems = [], settings = {}) {
     }
   }
   return { width, height, margin, top, bottom, pages, warnings };
+}
+
+function balancePageSpacing(pages, bottom, margin, contentWidth) {
+  const problemPages = new Map();
+  pages.forEach((page, pageIndex) => {
+    for (const item of page.items) {
+      if (!problemPages.has(item.number)) problemPages.set(item.number, new Set());
+      problemPages.get(item.number).add(pageIndex);
+    }
+  });
+  for (const page of pages) {
+    // Keep every page touched by a continuing problem exactly as paginated,
+    // including its first page and any other problems sharing those pages.
+    if (!page.items.length || page.items.some(item => problemPages.get(item.number).size > 1)) continue;
+    const groups = [];
+    for (const item of page.items) {
+      if (groups.at(-1)?.number !== item.number) groups.push({ number: item.number, items: [] });
+      groups.at(-1).items.push(item);
+    }
+    const last = page.items.at(-1);
+    const spare = bottom - last.y - last.height;
+    const bonus = spare / groups.length;
+    if (!Number.isFinite(bonus) || bonus <= EPSILON) continue;
+    const balanced = [];
+    let offset = 0;
+    for (const [index, group] of groups.entries()) {
+      for (const item of group.items) {
+        item.y += offset;
+        balanced.push(item);
+      }
+      const end = group.items.at(-1);
+      const nextOffset = index === groups.length - 1 ? spare : bonus * (index + 1);
+      const extraHeight = nextOffset - offset;
+      balanced.push({ type: 'space', extra: true, number: group.number, x: margin, y: end.y + end.height, width: contentWidth, height: extraHeight });
+      offset = nextOffset;
+    }
+    // Requested space items keep their exact heights; the extra space also
+    // follows the final problem so its answer area is not squeezed away.
+    page.items = balanced;
+  }
 }
 
 export function normalizeRect(rect = {}) {

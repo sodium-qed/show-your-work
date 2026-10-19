@@ -6,6 +6,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   nameLine: true,
   alignment: 'center',
   numbering: false,
+  spacing: 'balanced',
 });
 
 export const DEFAULT_PROBLEM = Object.freeze({
@@ -39,6 +40,7 @@ export function normalizePreferences(value) {
       nameLine: boolean(own(worksheet, 'nameLine'), DEFAULT_SETTINGS.nameLine),
       alignment: oneOf(own(worksheet, 'alignment'), ['center', 'left'], DEFAULT_SETTINGS.alignment),
       numbering: boolean(own(worksheet, 'numbering'), DEFAULT_SETTINGS.numbering),
+      spacing: oneOf(own(worksheet, 'spacing'), ['balanced', 'compact'], DEFAULT_SETTINGS.spacing),
     };
     result.problem = {
       space: bounded(own(problem, 'space'), 0, 720, DEFAULT_PROBLEM.space),

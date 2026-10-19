@@ -45,13 +45,19 @@ The server binds to `localhost` by default. `PORT` and `HOST` can override the l
 1. **Add a source.** Upload or drop one or more PDFs, PNGs, JPEGs, or WebP images. The bundled sample PDF provides a quick starting point. Use the source selector and page arrows to navigate.
 2. **Select a question.** Drag a rectangle around the content to keep. Move the rectangle, resize it with its corner handles, or edit its percentage coordinates. Select a whole page when appropriate.
 3. **Add or combine regions.** Add the crop as a problem. For a question spanning pages or files, select its problem card, navigate to the next part, and choose **Append to selected problem**. Each region retains its source reference for later crop edits.
-4. **Arrange the worksheet.** Move problems and their regions up or down, remove unwanted content, and adjust each problem's scale and blank writing height. A manual page break starts a problem on a new page. Choose the paper size, margins, title, name/date line, alignment, and optional worksheet numbers.
+4. **Arrange the worksheet.** Move problems and their regions up or down, remove unwanted content, and adjust each problem's scale and requested writing height. A manual page break starts a problem on a new page. Choose the paper size, margins, title, name/date line, page spacing, alignment, and optional worksheet numbers.
 5. **Review suggestions when useful.** **Suggest questions** uses deterministic rules to find numbered headings in a PDF's text layer and propose crops. No AI model is involved. Review and adjust the proposed rectangles before adding them. Suggestions do not recognize scanned text or decide which surrounding content belongs to a question. See [extraction notes](docs/extraction.md).
 6. **Preview and export.** Open **Print preview**, inspect every page and any layout warnings, then export the PDF. Edits invalidate the cached PDF; the next preview or export regenerates it. Print at **100% / Actual size** to preserve the intended dimensions.
 
-Writing space is adjustable from 0 to 10 inches in quarter-inch steps. Scale ranges from 25% to 200%, with crops also constrained to the printable width. US Letter and A4 paper are supported, with 0.5, 0.75, or 1 inch margins. Worksheet titles are limited to 90 characters.
+Requested writing space is adjustable from 0 to 10 inches in quarter-inch steps. Scale ranges from 25% to 200%, with crops also constrained to the printable width. US Letter and A4 paper are supported, with 0.5, 0.75, or 1 inch margins. Worksheet titles are limited to 90 characters.
 
 **100%** uses the source's original print size, subject to the printable width and any fit-to-page reduction. **30%** shrinks both dimensions to 30% of the original, making notation much smaller. **Reset to 100%** restores a problem's source scale and remembers 100% for future problems. Generated worksheet titles, labels, and page details use plain Arial/Helvetica styling; imported crops retain the source's original font appearance and notation.
+
+**Page spacing** defaults to **Balanced**. After pagination, it shares spare page room evenly below complete problems, using the requested writing height as a minimum. It does not change crop size, proportions, or page count. **Compact** keeps the requested writing height exactly and leaves unused room at the bottom. The card field is labeled **Minimum space** in Balanced and **Writing space** in Compact. Pages containing a problem that continues across pages keep exact spacing in either mode.
+
+![Worksheet with balanced spacing](docs/worksheet-preview.png)
+
+*Preserved source crops with blank areas for written work.*
 
 **Centered** places all questions in one shared column, sized from the widest final crop in the worksheet. Every crop uses the same left edge, including narrower questions and continuation parts; crops keep their own sizes and are never stretched to fill the column. **Left aligned** places that shared edge at the page margin. Whitespace inside each crop remains part of the image, so tighten the manual crop if the visible text still starts unevenly.
 
@@ -66,11 +72,11 @@ With a new crop selected in **Select & arrange**, these keyboard shortcuts match
 
 Shortcuts are inactive while typing in a field, a dialog is open, processing is busy, print preview is showing, or an existing saved region is being edited. Appending requires a selected problem. Use **Update region** for saved-crop edits.
 
-Ordinary problems stay together when their content and writing space fit a page. Larger problems continue onto subsequent pages. Their requested writing height is preserved, including across continuation pages. **Fit to one page** shrinks question content when the reserved writing space leaves enough room; it cannot make writing space longer than the usable page height fit on one page. Inspect the result for readability.
+Ordinary problems stay together when their content and requested writing space fit a page. Larger problems continue onto subsequent pages with the requested writing height preserved exactly. **Fit to one page** shrinks question content when the requested writing space leaves enough room; it cannot make writing space longer than the usable page height fit on one page. Balanced spacing is applied afterward. Inspect the result for readability.
 
 ## Remembered settings
 
-Changing a problem's writing height, scale, overflow mode, or page-break setting remembers that field as the default for future problems, including suggested and pasted-text problems. The worksheet title, paper, margins, name/date line, alignment, and **Add worksheet numbers** choice are also remembered across refreshes in this browser's `localStorage`, when available. The settings status shows the next-problem defaults and whether they were saved on this device. On desktop, worksheet settings remain visible while the problem list scrolls.
+Changing a problem's writing height, scale, overflow mode, or page-break setting remembers that field as the default for future problems, including suggested and pasted-text problems. The worksheet title, paper, margins, name/date line, **Page spacing**, alignment, and **Add worksheet numbers** choice are also remembered across refreshes in this browser's `localStorage`, when available. The settings status shows the next-problem defaults and whether they were saved on this device. On desktop, worksheet settings remain visible while the problem list scrolls.
 
 **Reset saved settings** restores worksheet preferences and defaults for new problems. Existing crops, ordering, and per-problem settings remain intact. Files, problem cards, and pasted question content are held only in memory and disappear on refresh; export the PDF before leaving. If browser storage is unavailable or cleared, saved preferences will not survive a new session.
 

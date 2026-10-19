@@ -4,7 +4,7 @@ import { DEFAULT_SETTINGS, DEFAULT_PROBLEM, normalizePreferences, loadPreference
 
 const KEY = 'show-your-work.preferences.v1';
 const expectedDefaults = () => ({
-  worksheet: { title: 'Math practice', paper: 'letter', margin: 36, nameLine: true, alignment: 'center', numbering: false },
+  worksheet: { title: 'Math practice', paper: 'letter', margin: 36, nameLine: true, alignment: 'center', numbering: false, spacing: 'balanced' },
   problem: { space: 144, scale: 100, fit: 'flow', pageBreak: false },
 });
 function memoryStorage(initial) {
@@ -38,7 +38,7 @@ test('defaults are immutable and every result has independent mutable settings',
 test('round-trips validated settings in a versioned envelope under the required key', () => {
   const storage = memoryStorage();
   const preferences = {
-    worksheet: { title: 'Algebra review', paper: 'a4', margin: 54, nameLine: false, alignment: 'left', numbering: true },
+    worksheet: { title: 'Algebra review', paper: 'a4', margin: 54, nameLine: false, alignment: 'left', numbering: true, spacing: 'compact' },
     problem: { space: 216.5, scale: 85, fit: 'shrink', pageBreak: true },
   };
   assert.equal(savePreferences(preferences, storage), true);
@@ -66,7 +66,7 @@ test('normalization clamps numeric bounds, limits title length, and validates en
 
 test('preserves valid zero, empty title, false booleans, and supported boundary choices', () => {
   const value = {
-    worksheet: { title: '', paper: 'a4', margin: 72, nameLine: false, alignment: 'left', numbering: false },
+    worksheet: { title: '', paper: 'a4', margin: 72, nameLine: false, alignment: 'left', numbering: false, spacing: 'balanced' },
     problem: { space: 0, scale: 25, fit: 'flow', pageBreak: false },
   };
   assert.deepEqual(normalizePreferences(value), value);
@@ -135,8 +135,40 @@ test('numbering persists strict booleans and old version-1 settings keep it disa
   const oldStorage = memoryStorage(JSON.stringify({ version: 1, ...oldPreferences }));
   assert.deepEqual(loadPreferences(oldStorage), {
     ...oldPreferences,
-    worksheet: { ...oldPreferences.worksheet, numbering: false },
+    worksheet: { ...oldPreferences.worksheet, numbering: false, spacing: 'balanced' },
   });
+});
+
+test('page spacing persists only supported modes and reset restores balanced spacing', () => {
+  const storage = memoryStorage();
+  for (const spacing of ['compact', 'balanced']) {
+    assert.equal(savePreferences({ worksheet: { spacing } }, storage), true);
+    assert.equal(JSON.parse(storage.values.get(KEY)).worksheet.spacing, spacing);
+    assert.equal(loadPreferences(storage).worksheet.spacing, spacing);
+  }
+  for (const spacing of ['Balanced', 'wide', '', true, 1, null, ['compact']]) {
+    assert.equal(normalizePreferences({ worksheet: { spacing } }).worksheet.spacing, 'balanced');
+  }
+  assert.equal(savePreferences({ worksheet: { spacing: 'compact', numbering: true } }, storage), true);
+  assert.equal(savePreferences({ worksheet: DEFAULT_SETTINGS, problem: DEFAULT_PROBLEM }, storage), true);
+  assert.deepEqual(loadPreferences(storage), expectedDefaults());
+});
+
+test('existing version-1 preferences gain balanced spacing without losing saved settings', () => {
+  const oldPreferences = {
+    worksheet: { title: 'Saved practice', paper: 'a4', margin: 72, nameLine: false, alignment: 'left', numbering: true },
+    problem: { space: 108, scale: 125, fit: 'shrink', pageBreak: true },
+  };
+  const storage = memoryStorage(JSON.stringify({ version: 1, ...oldPreferences }));
+  const migrated = loadPreferences(storage);
+  assert.deepEqual(migrated, {
+    ...oldPreferences,
+    worksheet: { ...oldPreferences.worksheet, spacing: 'balanced' },
+  });
+  assert.equal(savePreferences(migrated, storage), true);
+  assert.deepEqual([...storage.values.keys()], [KEY]);
+  assert.equal(JSON.parse(storage.values.get(KEY)).version, 1);
+  assert.deepEqual(loadPreferences(storage), migrated);
 });
 
 test('denied reads and writes, quota errors, and unusable storage never escape', () => {

@@ -77,6 +77,7 @@ These checks describe the intended verification scope. A listed check is not a c
 - Review numbered-text suggestions on single-column and multicolumn PDFs. Confirm scans remain available for manual selection without an OCR promise.
 - Add pasted text with Unicode math, line breaks, and long lines. Verify rendering stays within the crop and unsupported typesetting syntax is not presented as parsed math.
 - Change writing height, scale, paper, margins, title, name/date line, manual page breaks, and overflow mode. Check continuation labels, preserved blank space, and warnings for small or oversized content.
+- Verify **Balanced** is the default **Page spacing** choice and shares spare page room evenly below complete problems while retaining at least the requested writing height. Compare **Compact** for exact requested spacing. Confirm both modes keep crop dimensions, page count, and manual page breaks unchanged, and pages containing continuing problems retain exact spacing. Cover single-problem and final pages, zero requested writing space, and saved/reset spacing preferences.
 - Exercise **P** to add a crop and **Q** to append to a selected problem. Confirm neither shortcut activates while typing, a dialog is open, processing is busy, preview is active, or a saved crop is being edited.
 - Change problem defaults and worksheet preferences, then reload. Verify preferences return while imported files and question cards do not. Confirm **Reset saved settings** preserves existing card settings and **Reset to 100%** updates the intended problem.
 - Check that **Centered** gives different-width crops one shared left edge based on the widest final crop, while **Left aligned** places that edge at the margin. Confirm alignment leaves crop dimensions and internal padding unchanged.
@@ -94,25 +95,30 @@ Checks were run on 2026-10-19 using Node.js 24.19.0 and Playwright 1.56.1 with h
 
 | Check | Result |
 | --- | --- |
-| `npm test` | **57 tests passed:** 15 detection, 30 layout, and 12 preference tests. Layout coverage includes 400 seeded cases; detection includes extraction from the sample PDF. |
-| Source `npm run test:e2e` | **12 workflow stages passed**, with no runtime errors, failed requests, or external requests. All 13 exported pages matched independent PDF.js renderings pixel for pixel. |
+| `npm test` | **65 tests passed:** 15 detection, 36 layout, and 14 preference tests. Layout coverage includes 400 seeded cases comparing spacing modes; detection includes extraction from the sample PDF. |
+| Source `npm run test:e2e` | **13 workflow stages passed**, with no runtime errors, failed requests, or external requests. All 19 exported pages matched independent PDF.js renderings pixel for pixel. |
 | Source `npm run test:ui` | **8 focused stages passed**, with 12 exported pages inspected for geometry and numbering, and no runtime errors or external requests. |
-| Offline HTML `test:e2e` | **12 workflow stages passed** through `file://` with browser networking disabled. All 13 exported pages matched their previews; zero HTTP/HTTPS requests or runtime errors occurred. |
-| Offline HTML `test:ui` | **8 focused stages passed**, including shared-column geometry, optional numbering, saved preferences, shortcut safeguards, resets, and storage failures. Zero HTTP/HTTPS requests or runtime errors occurred. |
-| `npm run build` | Regenerated identical root and `dist/` standalone HTML files, approximately 7.71 MiB each, with the PDF resources, sample, and license notices embedded. |
+| Offline HTML `test:e2e` | **13 workflow stages passed** through `file://` with browser networking disabled. All 19 exported pages matched their previews; zero HTTP/HTTPS requests or runtime errors occurred. |
+| Offline HTML `test:ui` | **8 focused stages passed**, including spacing preferences, shared-column geometry, optional numbering, shortcut safeguards, resets, and storage failures. Zero HTTP/HTTPS requests or runtime errors occurred. |
+| `npm run build` | Regenerated identical root and `dist/` standalone HTML files, 8,089,588 bytes (approximately 7.71 MiB) each, with the PDF resources, sample, and license notices embedded. |
 
 The focused UI suite verified:
 
 - P/Q and uppercase shortcuts, plus protection for typing, dialogs, modified/repeated keys, saved-crop editing, preview, and busy processing.
 - Defaults inherited by keyboard, button, suggestion, and pasted-text creation; existing cards remain independent.
 - Preferences restored after reload while source files and problem cards remain unsaved; scale and settings resets affect the intended values.
+- Balanced spacing by default, remembered Compact spacing, reset to Balanced, and the corresponding **Minimum space** / **Writing space** card labels.
 - Safe editing with corrupt preferences, denied storage access, and exhausted storage quota.
-- Three unequal crops across two pages sharing one centered column based on the widest final crop, including a source crop reduced by **Fit to one page**. Left alignment changes only the shared horizontal position; image bytes, dimensions, aspect ratios, and pagination remain unchanged.
-- Remembered optional numbering, off by default with no initial label reserve; additional sequential labels when enabled and neutral **Continued** labels when disabled. Both numbering modes preserve a requested 10 inches of writing space across continuation pages.
+- With Compact spacing, three unequal crops across two pages share one centered column based on the widest final crop, including a source crop reduced by **Fit to one page**. Left alignment changes only the shared horizontal position; image bytes, dimensions, aspect ratios, and pagination remain unchanged.
+- Remembered optional numbering, off by default with no initial label reserve; additional sequential labels when enabled and neutral **Continued** labels when disabled. With Compact spacing, both numbering modes preserve exactly 10 inches of requested writing space across continuation pages.
 
-The full workflow suite also covered manual scans, multipage questions, reorder/remove/edit controls, source images and Unicode text, preview invalidation, oversized continuation and fit modes, corrupt-file recovery, rotated A4 output, the sample, and a 390-pixel-wide layout. The 13 checked pages comprise a 3-page worksheet, its 4-page revision, 3-page overflow, 1-page shrink, 1-page PNG export, and 1-page rotated A4 export.
+The full workflow suite also covered manual scans, multipage questions, reorder/remove/edit controls, source images and Unicode text, preview invalidation, oversized continuation and fit modes, corrupt-file recovery, rotated A4 output, the sample, and a 390-pixel-wide layout. Its 19 checked pages comprise a 3-page worksheet, its 4-page revision, 3-page overflow, 1-page shrink, 1-page PNG export, 1-page rotated A4 export, two single-page spacing comparisons, and a two-page continuation in each spacing mode.
 
-Source evidence is in `tests/output/e2e-results.json` and `tests/output/preferences/preferences-shortcuts-results.json`; offline reports use the corresponding `tests/output/offline/` and `tests/output/preferences-offline/` directories. The focused suite writes `centered.pdf`, `left-aligned.pdf`, `numbered.pdf`, `numeric-continuation.pdf`, and `unnumbered-continuation.pdf`, containing 12 pages in total. Actual PDF inspection confirmed that alignment and added labels preserve every embedded crop image. The offline workflow audit recorded only local file and blob resources, including blob workers.
+The spacing comparison verified equal added room below three unequal PDF/image crops with zero requested writing space. Crop image hashes, dimensions, proportions, and page count stayed unchanged. Continuing-problem pages had identical rendered-page hashes in Balanced and Compact modes.
+
+A visual comparison of a representative one-page textbook worksheet confirmed that Balanced added 33⅓ points to each problem's requested 1.5-inch writing area. Crop pixels and dimensions were unchanged, with no clipping or overlap. Desktop layouts at 1440 and 1280 pixels kept settings visible, and the 390-pixel mobile layout had no horizontal overflow.
+
+Source evidence is in `tests/output/e2e-results.json` and `tests/output/preferences/preferences-shortcuts-results.json`; offline reports use the corresponding `tests/output/offline/` and `tests/output/preferences-offline/` directories. The focused suite writes `centered.pdf`, `left-aligned.pdf`, `numbered.pdf`, `numeric-continuation.pdf`, and `unnumbered-continuation.pdf`, containing 12 pages in total. The full suite adds `spacing-balanced.pdf`, `spacing-compact.pdf`, and their `spacing-continuation-*.pdf` variants. Actual PDF inspection confirmed that alignment and added labels preserve every embedded crop image. The offline workflow audit recorded only local file and blob resources, including six blob workers.
 
 Coverage is limited to Chromium in this environment. Physical printing and other browser engines were not tested. PNG import/export was exercised end to end; JPEG/WebP, password handling, every size-limit boundary, arbitrary damaged PDFs, and complex raster-image patterns need broader coverage. Known examples do not establish universal extraction accuracy or print legibility.
 

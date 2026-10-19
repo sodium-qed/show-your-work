@@ -200,12 +200,12 @@ h3 { margin: 10px 0; font-size: 17px; font-weight: 600; line-height: 1.4; }
 
 .queue-settings { padding: 16px 18px; border-bottom: 1px solid #e3e5e6; background: #fafbfa; }
 .queue-settings input:not([type="checkbox"]), .queue-settings select { width: 100%; }
-.settings-checks { display: flex; flex-direction: column; justify-content: center; gap: 9px; }
+.settings-checks { display: flex; flex-wrap: wrap; gap: 9px; }
 .settings-row { display: flex; gap: 12px; margin-top: 11px; }
 .settings-row > * { flex: 1; min-width: 0; }
 .check-label { display: flex; flex-direction: row; align-items: center; gap: 7px; margin-top: 12px; color: #555f59; font-weight: 400; line-height: 1.4; }
 .check-label input { flex: 0 0 auto; margin: 0; }
-.settings-checks .check-label { margin-top: 0; }
+.settings-checks .check-label { flex: 1 1 145px; margin-top: 0; }
 #question-alignment { min-width: 0; }
 #settings-status { margin: 11px 0 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
 #settings-status:empty { display: none; }

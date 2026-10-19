@@ -8,19 +8,21 @@ const state = { sources: [], sourceId: null, page: 1, problems: [], selected: nu
 const source = () => state.sources.find(s => s.id === state.sourceId);
 const selected = () => state.problems.find(p => p.id === state.selected);
 const escape = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const settings = () => ({ title: $('#worksheet-title').value, paper: $('#paper-size').value, margin: Number($('#page-margin').value), nameLine: $('#name-line').checked, alignment: $('#question-alignment').value, numbering: $('#number-problems').checked });
+const settings = () => ({ title: $('#worksheet-title').value, paper: $('#paper-size').value, margin: Number($('#page-margin').value), nameLine: $('#name-line').checked, alignment: $('#question-alignment').value, spacing: $('#page-spacing').value, numbering: $('#number-problems').checked });
 function applyWorksheetSettings(value) {
   $('#worksheet-title').value = value.title;
   $('#paper-size').value = value.paper;
   $('#page-margin').value = value.margin;
   $('#name-line').checked = value.nameLine;
   $('#question-alignment').value = value.alignment;
+  $('#page-spacing').value = value.spacing;
   $('#number-problems').checked = value.numbering;
 }
 function rememberSettings() {
   const saved = savePreferences({ worksheet: settings(), problem: state.defaults });
   const p = state.defaults;
   $('#settings-status').textContent = `Next problem: ${+(p.space / 72).toFixed(3)} in space · ${p.scale}% size · ${p.fit === 'shrink' ? 'fit to page' : 'continue if needed'}${p.pageBreak ? ' · new page' : ''}. ${saved ? 'Saved on this device.' : 'Kept for this visit; browser storage is unavailable.'}`;
+  $('#spacing-hint').textContent = settings().spacing === 'compact' ? 'Writing space stays at the entered height.' : 'Spare room is shared below whole problems.';
 }
 function tell(message, error = false) { $('#notice').textContent = message; $('#notice').classList.toggle('error', error); $('#notice').hidden = false; }
 function dirty() { state.revision++; $('#preview-count').textContent = state.preview ? 'Changed' : ''; updateButtons(); }
@@ -100,7 +102,7 @@ function renderQueue() {
   $('#problem-list').innerHTML=state.problems.map((p,i)=>`<li class="problem-card${p.id===state.selected?' selected':''}" data-id="${p.id}" tabindex="0" aria-label="Problem ${i+1}">
     <div class="card-head"><div class="card-label"><span class="problem-number">${String(i+1).padStart(2,'0')}</span>Problem ${i+1}<span class="quiet">${p.regions.length>1?`${p.regions.length} parts`:''}</span></div><div class="card-actions"><button class="icon-button" data-action="up" aria-label="Move problem ${i+1} up" ${i===0?'disabled':''}>↑</button><button class="icon-button" data-action="down" aria-label="Move problem ${i+1} down" ${i===state.problems.length-1?'disabled':''}>↓</button><button class="icon-button" data-action="remove" aria-label="Remove problem ${i+1}">×</button></div></div>
     <div class="region-list">${p.regions.map((r,ri)=>`<div class="region-thumb"><img src="${r.thumbnail}" alt="Problem ${i+1}, region ${ri+1}"><div class="region-caption"><span title="${escape(r.sourceName)}">${escape(r.sourceName)}${r.sourceId?` · p. ${r.page}`:''}</span><div class="region-actions">${r.sourceId?`<button data-action="edit-region" data-region="${r.id}" aria-label="Edit region ${ri+1} of problem ${i+1}">Crop</button>`:''}${p.regions.length>1?`<button data-action="region-up" data-region="${r.id}" aria-label="Move region ${ri+1} up" ${ri===0?'disabled':''}>↑</button><button data-action="region-down" data-region="${r.id}" aria-label="Move region ${ri+1} down" ${ri===p.regions.length-1?'disabled':''}>↓</button>`:''}<button data-action="remove-region" data-region="${r.id}" aria-label="Remove region ${ri+1} of problem ${i+1}">×</button></div></div></div>`).join('')}</div>
-    <div class="problem-controls"><label>Writing space (in)<input type="number" data-field="space" min="0" max="10" step="0.25" value="${+(p.space/72).toFixed(3)}"></label><label>Question size (%)<input type="number" data-field="scale" min="25" max="200" step="5" value="${p.scale}"></label><label class="wide">Oversized problem<select data-field="fit"><option value="flow"${p.fit==='flow'?' selected':''}>Continue onto next page</option><option value="shrink"${p.fit==='shrink'?' selected':''}>Fit to one page (shrink question)</option></select></label></div>
+    <div class="problem-controls"><label>${settings().spacing === 'compact' ? 'Writing space' : 'Minimum space'} (in)<input type="number" data-field="space" min="0" max="10" step="0.25" value="${+(p.space/72).toFixed(3)}"></label><label>Question size (%)<input type="number" data-field="scale" min="25" max="200" step="5" value="${p.scale}"></label><label class="wide">Oversized problem<select data-field="fit"><option value="flow"${p.fit==='flow'?' selected':''}>Continue onto next page</option><option value="shrink"${p.fit==='shrink'?' selected':''}>Fit to one page (shrink question)</option></select></label></div>
     <p class="scale-hint${p.scale<70?' small-print':''}">${p.scale<70?`${p.scale}% can make source text very small.`:'100% keeps the original print size.'}${p.scale!==100?' <button class="reset-scale" data-action="reset-scale">Reset to 100%</button>':''}</p>
     <label class="check-label"><input type="checkbox" data-field="pageBreak" ${p.pageBreak?'checked':''}> Start on a new page</label>${p.id===state.selected?'<p class="selected-hint">Selected · new regions can be appended to this problem.</p>':''}
   </li>`).join('');
@@ -149,7 +151,10 @@ async function ensurePreview() {
   state.preview={...result,revision:state.revision};
   const {layout}=result;
   $('#preview-count').textContent=layout.pages.length;
-  $('#preview-summary').innerHTML=`<strong>${state.problems.length}</strong> problem${state.problems.length===1?'':'s'} · <strong>${layout.pages.length}</strong> page${layout.pages.length===1?'':'s'}<br>${settings().paper==='letter'?'US Letter · 8.5 × 11 in':'A4 · 210 × 297 mm'}<br>${settings().margin/72} in margins · 300 dpi target`;
+  $('#preview-summary').innerHTML=`<strong>${state.problems.length}</strong> problem${state.problems.length===1?'':'s'} · <strong>${layout.pages.length}</strong> page${layout.pages.length===1?'':'s'}<br>${settings().paper==='letter'?'US Letter · 8.5 × 11 in':'A4 · 210 × 297 mm'}<br>${settings().margin/72} in margins · 300 dpi target<br>${settings().spacing === 'compact' ? 'Compact' : 'Balanced'} page spacing`;
+  $('#preview-spacing-note').textContent = settings().spacing === 'compact'
+    ? 'Print at 100% / Actual size. Each problem keeps exactly the writing height you entered.'
+    : 'Print at 100% / Actual size. Writing space is a minimum; spare room is shared below whole problems. Pages with continuing problems keep the requested spacing.';
   const unique=[...new Set(layout.warnings.map(w=>w.message))];
   $('#layout-warnings').innerHTML=unique.map(w=>`<div class="warning">${escape(w)}</div>`).join('');
 }
@@ -238,7 +243,7 @@ $('#problem-list').addEventListener('change',e=>{
   state.defaults[field]=p[field];rememberSettings();
   dirty();renderQueue();
 });
-for(const id of ['#worksheet-title','#paper-size','#page-margin','#name-line','#question-alignment','#number-problems'])$(id).addEventListener(id==='#worksheet-title'?'input':'change',()=>{rememberSettings();dirty();});
+for(const id of ['#worksheet-title','#paper-size','#page-margin','#name-line','#question-alignment','#page-spacing','#number-problems'])$(id).addEventListener(id==='#worksheet-title'?'input':'change',()=>{rememberSettings();dirty();if(id==='#page-spacing')renderQueue();});
 $('#reset-preferences').addEventListener('click',()=>{
   state.defaults={...DEFAULT_PROBLEM};applyWorksheetSettings(DEFAULT_SETTINGS);rememberSettings();dirty();renderQueue();
   tell('Saved settings reset. Existing problems keep their individual settings.');

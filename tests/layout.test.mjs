@@ -8,7 +8,7 @@ const crop = (id, width = 200, height = 100, breaks = []) => ({ id, width, heigh
 const problem = (id, height = 100, extra = {}) => ({ regions: [crop(id, 200, height)], space: 0, scale: 100, fit: 'flow', ...extra });
 const items = layout => layout.pages.flatMap(page => page.items);
 const crops = layout => items(layout).filter(item => item.type === 'region');
-const totalSpace = (layout, number) => items(layout).filter(item => item.type === 'space' && item.number === number).reduce((sum, item) => sum + item.height, 0);
+const totalSpace = (layout, number) => items(layout).filter(item => item.type === 'space' && !item.extra && item.number === number).reduce((sum, item) => sum + item.height, 0);
 
 function assertAlignment(layout, alignment = 'center') {
   const columnWidth = crops(layout).reduce((widest, item) => Math.max(widest, item.width), 0);
@@ -187,18 +187,111 @@ test('switching alignment changes only label and region x coordinates across mix
   assertLayout(left, input);
 });
 
+test('balanced spacing uses spare page height after every complete problem including the last', () => {
+  const input = [problem('one', 40, { space: 20 }), problem('two', 80, { space: 30 }), problem('three', 60, { space: 38 })];
+  const layout = planWorksheet(input);
+  const compact = planWorksheet(input, { spacing: 'compact' });
+  assert.deepEqual(planWorksheet(input, { spacing: 'balanced' }), layout);
+  assert.equal(layout.pages.length, compact.pages.length);
+  assert.deepEqual(crops(compact).map(item => item.y), [36, 106, 226]);
+  assert.deepEqual(crops(layout).map(item => item.y), [36, 244, 502]);
+  const extra = items(layout).filter(item => item.extra);
+  assert.deepEqual(extra.map(item => [item.number, item.height]), [[1, 138], [2, 138], [3, 138]]);
+  assert.equal(extra.at(-1).y + extra.at(-1).height, layout.bottom, 'the last problem also receives additional writing room');
+  assert.equal(items(compact).filter(item => item.extra).length, 0);
+  for (const [index, p] of input.entries()) {
+    close(totalSpace(layout, index + 1), p.space);
+    if (index < input.length - 1) close(crops(layout)[index + 1].y - extra[index].y - extra[index].height, GAP);
+  }
+  assert.deepEqual(crops(layout).map(item => [item.width, item.height]), crops(compact).map(item => [item.width, item.height]));
+  assertAlignment(layout);
+  assertLayout(layout, input);
+});
+
+test('zero requested writing space still permits balanced extra room without changing the minimum', () => {
+  const input = [problem('one', 30), problem('two', 70), problem('three', 50)];
+  const layout = planWorksheet(input);
+  const compact = planWorksheet(input, { spacing: 'compact' });
+  const bonus = (702 - (30 + 70 + 50 + 2 * GAP)) / 3;
+  assert.equal(items(layout).filter(item => item.extra).length, 3);
+  crops(layout).forEach((item, index) => {
+    close(item.y - crops(compact)[index].y, index * bonus);
+    assert.equal(totalSpace(layout, index + 1), 0);
+  });
+  close(items(layout).at(-1).y + items(layout).at(-1).height, layout.bottom);
+  assertLayout(layout, input);
+});
+
+test('single-problem pages gain trailing writing room without moving their content', () => {
+  const input = [problem('one', 100, { space: 72 })];
+  for (const numbering of [false, true]) {
+    const settings = { paper: 'a4', margin: 54, title: 'Practice', nameLine: true, numbering };
+    const compact = planWorksheet(input, { ...settings, spacing: 'compact' });
+    const layout = planWorksheet(input, settings);
+    assert.deepEqual(items(layout).filter(item => !item.extra), items(compact));
+    const extra = items(layout).filter(item => item.extra);
+    assert.equal(extra.length, 1);
+    close(extra[0].y + extra[0].height, layout.bottom);
+    close(extra[0].height, compact.bottom - items(compact).at(-1).y - items(compact).at(-1).height);
+    close(totalSpace(layout, 1), 72);
+    assertLayout(layout, input, settings);
+  }
+});
+
+test('balancing keeps all regions and label offsets within a problem together', () => {
+  const input = [{ regions: [crop('instructions', 300, 30), crop('question', 200, 40)], space: 36 }, problem('next', 50)];
+  const settings = { numbering: true };
+  const compact = planWorksheet(input, { ...settings, spacing: 'compact' });
+  const layout = planWorksheet(input, settings);
+  const regions = crops(layout);
+  close(regions[1].y - regions[0].y - regions[0].height, REGION_GAP);
+  assert.deepEqual(regions.slice(0, 2), crops(compact).slice(0, 2), 'instructions and question remain adjacent and start at the original top');
+  assert.deepEqual(items(layout).filter(item => item.extra).map(item => item.number), [1, 2]);
+  for (const label of items(layout).filter(item => item.type === 'label')) {
+    close(regions.find(item => item.number === label.number).y - label.y, LABEL_HEIGHT);
+  }
+  assertLayout(layout, input, settings);
+});
+
+test('every page touched by a multi-page problem stays compact including mixed and writing-space continuations', () => {
+  for (const continuing of [problem('continuing-crop', 1200), problem('continuing-space', 100, { space: 1100 })]) {
+    const input = [problem('before', 80), continuing, problem('after', 40, { space: 20 }), problem('new-page', 80, { space: 20, pageBreak: true })];
+    const compact = planWorksheet(input, { spacing: 'compact' });
+    const layout = planWorksheet(input);
+    assert.equal(layout.pages.length, 3);
+    assert.deepEqual(layout.pages.slice(0, 2), compact.pages.slice(0, 2), 'neither the first nor continuation page redistributes space');
+    assert.equal(layout.pages[2].items.filter(item => item.extra).length, 1, 'an independent whole-problem page can still be balanced');
+    assert.deepEqual(layout.pages[2].items.filter(item => !item.extra), compact.pages[2].items);
+    assertLayout(layout, input);
+  }
+});
+
+test('full pages and sub-epsilon spare height do not produce negative or tiny bonus items', () => {
+  const geometry = planWorksheet([]);
+  const capacity = geometry.bottom - geometry.top;
+  for (const difference of [-5e-8, 0, 5e-8]) {
+    const input = [problem('full', capacity + difference)];
+    const layout = planWorksheet(input);
+    assert.equal(layout.pages.length, 1);
+    assert.equal(items(layout).filter(item => item.extra).length, 0);
+    assertLayout(layout, input);
+  }
+  const input = [problem('one', 100), problem('two', 100), problem('three', capacity - 200 - 2 * GAP - 2e-7)];
+  assert.equal(items(planWorksheet(input)).filter(item => item.extra).length, 0, 'an imperceptible per-problem bonus is omitted');
+});
+
 test('numbering is off unless explicitly true and reserves no hidden first-label space', () => {
   const input = [problem('textbook-seven', 100, { space: 72 }), problem('textbook-nine', 80, { space: 36 })];
-  const defaultLayout = planWorksheet(input);
+  const defaultLayout = planWorksheet(input, { spacing: 'compact' });
   for (const numbering of [false, undefined, null, 0, 'true']) {
-    const layout = planWorksheet(input, { numbering });
+    const layout = planWorksheet(input, { numbering, spacing: 'compact' });
     assert.deepEqual(layout, defaultLayout);
     assert.ok(items(layout).filter(item => item.type === 'label').every(item => item.text === '' && item.height === 0));
     close(crops(layout)[0].y, layout.top);
     close(crops(layout)[1].y, layout.top + 100 + 72 + GAP);
     assertLayout(layout, input);
   }
-  const numbered = planWorksheet(input, { numbering: true });
+  const numbered = planWorksheet(input, { numbering: true, spacing: 'compact' });
   assert.deepEqual(items(numbered).filter(item => item.type === 'label').map(item => item.text), ['1.', '2.']);
   close(crops(numbered)[0].y, numbered.top + LABEL_HEIGHT);
   close(crops(numbered)[1].y - crops(defaultLayout)[1].y, LABEL_HEIGHT * 2);
@@ -430,7 +523,7 @@ test('sub-point crops and fitted writing spaces are retained without numerical c
 
 test('problem gaps are applied between content blocks without introducing empty trailing pages', () => {
   const input = [problem('one', 50), problem('two', 70)];
-  const layout = planWorksheet(input);
+  const layout = planWorksheet(input, { spacing: 'compact' });
   const all = items(layout);
   close(all[2].y - all[1].y - all[1].height, GAP);
   assert.equal(layout.pages.length, 1);
@@ -474,11 +567,16 @@ test('seeded layouts preserve geometry, source coverage, labels, and requested s
       pageBreak: random() < 0.15,
     }));
     const before = structuredClone(input);
-    const settings = { paper: random() < 0.5 ? 'letter' : 'a4', margin: 18 + random() * 54, title: random() < 0.5 ? 'Practice' : '', nameLine: random() < 0.5, alignment: random() < 0.5 ? 'center' : 'left', numbering: random() < 0.5 };
+    const settings = { paper: random() < 0.5 ? 'letter' : 'a4', margin: 18 + random() * 54, title: random() < 0.5 ? 'Practice' : '', nameLine: random() < 0.5, alignment: random() < 0.5 ? 'center' : 'left', numbering: random() < 0.5, spacing: random() < 0.5 ? 'balanced' : 'compact' };
     const layout = planWorksheet(input, settings);
     assertLayout(layout, input, settings);
     assertAlignment(layout, settings.alignment);
     assert.deepEqual(input, before, 'planning does not mutate input data');
+    const other = planWorksheet(input, { ...settings, spacing: settings.spacing === 'compact' ? 'balanced' : 'compact' });
+    assert.equal(layout.pages.length, other.pages.length, 'spacing mode never changes page count');
+    const withoutSpacing = result => ({ ...result, pages: result.pages.map(page => ({ items: page.items.filter(item => !item.extra).map(item => ({ ...item, y: 0 })) })) });
+    assert.deepEqual(withoutSpacing(layout), withoutSpacing(other), 'spacing mode preserves original items, dimensions, source slices, page assignments, and warnings');
+    assertLayout(other, input, settings);
     for (const [index, p] of input.entries()) {
       if (p.fit === 'shrink' && p.space < layout.bottom - layout.top - (settings.numbering ? LABEL_HEIGHT : 0)) {
         assert.equal(layout.pages.filter(page => page.items.some(item => item.number === index + 1)).length, 1, 'possible one-page fits use exactly one page');
