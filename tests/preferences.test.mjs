@@ -4,7 +4,7 @@ import { DEFAULT_SETTINGS, DEFAULT_PROBLEM, normalizePreferences, loadPreference
 
 const KEY = 'show-your-work.preferences.v1';
 const expectedDefaults = () => ({
-  worksheet: { title: 'Math practice', paper: 'letter', margin: 36, nameLine: true, alignment: 'center' },
+  worksheet: { title: 'Math practice', paper: 'letter', margin: 36, nameLine: true, alignment: 'center', numbering: false },
   problem: { space: 144, scale: 100, fit: 'flow', pageBreak: false },
 });
 function memoryStorage(initial) {
@@ -38,7 +38,7 @@ test('defaults are immutable and every result has independent mutable settings',
 test('round-trips validated settings in a versioned envelope under the required key', () => {
   const storage = memoryStorage();
   const preferences = {
-    worksheet: { title: 'Algebra review', paper: 'a4', margin: 54, nameLine: false, alignment: 'left' },
+    worksheet: { title: 'Algebra review', paper: 'a4', margin: 54, nameLine: false, alignment: 'left', numbering: true },
     problem: { space: 216.5, scale: 85, fit: 'shrink', pageBreak: true },
   };
   assert.equal(savePreferences(preferences, storage), true);
@@ -66,7 +66,7 @@ test('normalization clamps numeric bounds, limits title length, and validates en
 
 test('preserves valid zero, empty title, false booleans, and supported boundary choices', () => {
   const value = {
-    worksheet: { title: '', paper: 'a4', margin: 72, nameLine: false, alignment: 'left' },
+    worksheet: { title: '', paper: 'a4', margin: 72, nameLine: false, alignment: 'left', numbering: false },
     problem: { space: 0, scale: 25, fit: 'flow', pageBreak: false },
   };
   assert.deepEqual(normalizePreferences(value), value);
@@ -116,6 +116,27 @@ test('missing, corrupt, malformed, and incompatible stored envelopes fall back s
     assert.deepEqual(loadPreferences(memoryStorage(raw)), expectedDefaults(), `stored value: ${raw}`);
   }
   assert.deepEqual(normalizePreferences({ version: 2, worksheet: { title: 'Future' } }), expectedDefaults());
+});
+
+test('numbering persists strict booleans and old version-1 settings keep it disabled', () => {
+  const storage = memoryStorage();
+  for (const numbering of [true, false]) {
+    assert.equal(savePreferences({ worksheet: { numbering } }, storage), true);
+    assert.equal(JSON.parse(storage.values.get(KEY)).worksheet.numbering, numbering);
+    assert.equal(loadPreferences(storage).worksheet.numbering, numbering);
+  }
+  for (const numbering of ['true', 'false', 1, 0, null]) {
+    assert.equal(normalizePreferences({ worksheet: { numbering } }).worksheet.numbering, false);
+  }
+  const oldPreferences = {
+    worksheet: { title: 'Saved algebra', paper: 'a4', margin: 54, nameLine: false, alignment: 'left' },
+    problem: { space: 216, scale: 85, fit: 'shrink', pageBreak: true },
+  };
+  const oldStorage = memoryStorage(JSON.stringify({ version: 1, ...oldPreferences }));
+  assert.deepEqual(loadPreferences(oldStorage), {
+    ...oldPreferences,
+    worksheet: { ...oldPreferences.worksheet, numbering: false },
+  });
 });
 
 test('denied reads and writes, quota errors, and unusable storage never escape', () => {

@@ -76,8 +76,10 @@ async function idle() {
 
 async function fresh() {
   await page.goto(origin, { waitUntil: 'networkidle' });
+  await page.waitForFunction(() => document.querySelector('#settings-status')?.textContent.trim());
   await page.locator('#empty-source').waitFor({ state: 'visible' });
   assert.equal(await page.locator('#problem-count').textContent(), '0');
+  assert.equal(await page.locator('#number-problems').isChecked(), false, 'Fresh worksheets preserve original source numbering by default.');
 }
 
 async function upload(path) {
@@ -203,7 +205,8 @@ async function exactPreview(bytes) {
         let mismatched = 0; let ink = 0;
         for (let pixel = 0; pixel < left.length; pixel++) if (left[pixel] !== right[pixel]) mismatched++;
         for (let pixel = 0; pixel < right.length; pixel += 4) if (Math.min(right[pixel], right[pixel + 1], right[pixel + 2]) < 180) ink++;
-        pages.push({ number: index + 1, width: expected.width, height: expected.height, mismatched, ink });
+        const generatedLabels = (await source.getTextContent()).items.map(item => item.str).filter(text => /^\d+\.(?: \(continued\))?$/.test(text));
+        pages.push({ number: index + 1, width: expected.width, height: expected.height, mismatched, ink, generatedLabels });
         expected.width = expected.height = 1;
       }
       return { pages: pdf.numPages, shown: canvases.length, equal: pages.every(item => item.mismatched === 0), detail: pages };
@@ -211,6 +214,7 @@ async function exactPreview(bytes) {
   }, [...bytes]);
   assert.equal(comparison.equal, true, `Downloaded PDF differs from preview: ${JSON.stringify(comparison)}`);
   assert.ok(comparison.detail.every(item => item.ink > 100), 'Every exported page contains rendered content.');
+  assert.ok(comparison.detail.every(item => item.generatedLabels.length === 0), 'Default exports add no duplicate numeric question labels.');
   return comparison;
 }
 

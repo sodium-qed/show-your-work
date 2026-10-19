@@ -18,11 +18,13 @@ export function planWorksheet(problems = [], settings = {}) {
   const margin = clamp(finite(settings.margin, 36), 18, 72);
   const contentWidth = width - margin * 2;
   const alignment = settings.alignment === 'left' ? 'left' : 'center';
+  const numbering = settings.numbering === true;
+  const initialLabelHeight = numbering ? LABEL_HEIGHT : 0;
   // Keep these reserves in sync with the PDF engine's header and footer.
   const top = margin + (settings.title ? (settings.nameLine ? 50 : 36) : (settings.nameLine ? 24 : 0));
   const bottom = height - margin - 18;
   const capacity = bottom - top;
-  const regionCapacity = capacity - LABEL_HEIGHT;
+  const initialRegionCapacity = capacity - initialLabelHeight;
   const pages = [];
   const warnings = [];
   let page = null;
@@ -56,33 +58,35 @@ export function planWorksheet(problems = [], settings = {}) {
     const contentHeight = regions.reduce((sum, region) => sum + region.drawHeight, 0) + (regions.length - 1) * REGION_GAP;
     if (!Number.isFinite(contentHeight + space)) throw new Error(`Problem ${number} is too large to lay out.`);
     let fit = 1;
-    const requestedTotal = LABEL_HEIGHT + contentHeight + space;
-    const canShrink = space < regionCapacity;
+    const requestedTotal = initialLabelHeight + contentHeight + space;
+    const canShrink = space < initialRegionCapacity;
     if (problem.fit === 'shrink' && requestedTotal > capacity + EPSILON && canShrink) {
       // Shrink content and its internal gaps together, preserving writing space.
       // The tiny guard prevents a rounding remainder from creating another page.
-      fit = (regionCapacity - space) / contentHeight * (1 - Number.EPSILON * 8);
+      fit = (initialRegionCapacity - space) / contentHeight * (1 - Number.EPSILON * 8);
       warnings.push({ problem: number, kind: 'shrink', message: `Problem ${number} is reduced to fit one page. Check readability in the preview.` });
     }
     if (regions.some(region => region.scale * fit < 0.7)) {
       warnings.push({ problem: number, kind: 'small', message: `Problem ${number} contains a crop below 70% of its original print size.` });
     }
-    // Center the whole problem after scaling; narrower regions and every
-    // continuation keep the same left edge without changing any crop's size.
-    const blockWidth = regions.reduce((widest, region) => Math.max(widest, region.drawWidth * fit), 0);
-    const blockX = margin + (alignment === 'center' ? (contentWidth - blockWidth) / 2 : 0);
-    const total = LABEL_HEIGHT + contentHeight * fit + space;
+    const total = initialLabelHeight + contentHeight * fit + space;
     if (!page) fresh();
     if (problem.pageBreak && page.items.length) fresh();
     if (total <= capacity + EPSILON && total > bottom - y + EPSILON && page.items.length) fresh();
 
     let labeledPage = null;
     let firstPage = -1;
-    const available = () => bottom - y - (labeledPage === page ? 0 : LABEL_HEIGHT);
+    const nextLabelHeight = () => firstPage >= 0 ? LABEL_HEIGHT : initialLabelHeight;
+    const available = () => bottom - y - (labeledPage === page ? 0 : nextLabelHeight());
     const addLabel = () => {
       if (labeledPage === page) return;
-      page.items.push({ type: 'label', number, continued: firstPage >= 0, x: blockX, y, height: LABEL_HEIGHT });
-      y += LABEL_HEIGHT;
+      const continued = firstPage >= 0;
+      const labelHeight = nextLabelHeight();
+      const text = numbering ? `${number}.${continued ? ' (continued)' : ''}` : (continued ? 'Continued' : '');
+      // Keep a zero-height marker for an unnumbered problem's first page so
+      // renderers can identify its content without reserving invisible space.
+      page.items.push({ type: 'label', number, continued, text, x: margin, y, height: labelHeight });
+      y += labelHeight;
       labeledPage = page;
       if (firstPage < 0) firstPage = pages.length - 1;
     };
@@ -93,7 +97,7 @@ export function planWorksheet(problems = [], settings = {}) {
       let gap = ri && labeledPage === page ? REGION_GAP * fit : 0;
       // Decide where content belongs before inserting its label or leading gap.
       // Regions that fit a new page remain intact, even in a larger problem.
-      const keepTogether = dh <= regionCapacity + EPSILON;
+      const keepTogether = dh <= capacity - nextLabelHeight() + EPSILON;
       if ((keepTogether && dh > available() - gap + EPSILON) ||
           (!keepTogether && available() - gap < MIN_FRAGMENT - EPSILON)) {
         fresh();
@@ -119,7 +123,7 @@ export function planWorksheet(problems = [], settings = {}) {
         if (!(sourceEnd > sourceTop)) throw new Error(`Problem ${number} is too large to paginate safely.`);
         const sourceHeight = sourceEnd - sourceTop;
         const piece = dh * sourceHeight;
-        page.items.push({ type: 'region', number, regionId: region.id, x: blockX, y, width: dw, height: piece, sourceTop, sourceHeight });
+        page.items.push({ type: 'region', number, regionId: region.id, x: margin, y, width: dw, height: piece, sourceTop, sourceHeight });
         y += piece;
         sourceTop = sourceEnd;
         if (sourceTop < 1) { fresh(); addLabel(); }
@@ -144,6 +148,19 @@ export function planWorksheet(problems = [], settings = {}) {
       warnings.push({ problem: number, kind: 'overflow', message });
     }
     y = Math.min(bottom, y + GAP);
+  }
+  // One shared worksheet column keeps differently sized textbook crops on the
+  // same left edge. Final rendered widths include every problem's fit factor;
+  // changing alignment only changes x, never crop size or pagination.
+  if (alignment === 'center') {
+    let columnWidth = 0;
+    for (const entry of pages) for (const item of entry.items) {
+      if (item.type === 'region') columnWidth = Math.max(columnWidth, item.width);
+    }
+    const columnX = margin + (contentWidth - columnWidth) / 2;
+    for (const entry of pages) for (const item of entry.items) {
+      if (item.type === 'region' || item.type === 'label') item.x = columnX;
+    }
   }
   return { width, height, margin, top, bottom, pages, warnings };
 }

@@ -8,13 +8,14 @@ const state = { sources: [], sourceId: null, page: 1, problems: [], selected: nu
 const source = () => state.sources.find(s => s.id === state.sourceId);
 const selected = () => state.problems.find(p => p.id === state.selected);
 const escape = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const settings = () => ({ title: $('#worksheet-title').value, paper: $('#paper-size').value, margin: Number($('#page-margin').value), nameLine: $('#name-line').checked, alignment: $('#question-alignment').value });
+const settings = () => ({ title: $('#worksheet-title').value, paper: $('#paper-size').value, margin: Number($('#page-margin').value), nameLine: $('#name-line').checked, alignment: $('#question-alignment').value, numbering: $('#number-problems').checked });
 function applyWorksheetSettings(value) {
   $('#worksheet-title').value = value.title;
   $('#paper-size').value = value.paper;
   $('#page-margin').value = value.margin;
   $('#name-line').checked = value.nameLine;
   $('#question-alignment').value = value.alignment;
+  $('#number-problems').checked = value.numbering;
 }
 function rememberSettings() {
   const saved = savePreferences({ worksheet: settings(), problem: state.defaults });
@@ -237,7 +238,7 @@ $('#problem-list').addEventListener('change',e=>{
   state.defaults[field]=p[field];rememberSettings();
   dirty();renderQueue();
 });
-for(const id of ['#worksheet-title','#paper-size','#page-margin','#name-line','#question-alignment'])$(id).addEventListener(id==='#worksheet-title'?'input':'change',()=>{rememberSettings();dirty();});
+for(const id of ['#worksheet-title','#paper-size','#page-margin','#name-line','#question-alignment','#number-problems'])$(id).addEventListener(id==='#worksheet-title'?'input':'change',()=>{rememberSettings();dirty();});
 $('#reset-preferences').addEventListener('click',()=>{
   state.defaults={...DEFAULT_PROBLEM};applyWorksheetSettings(DEFAULT_SETTINGS);rememberSettings();dirty();renderQueue();
   tell('Saved settings reset. Existing problems keep their individual settings.');

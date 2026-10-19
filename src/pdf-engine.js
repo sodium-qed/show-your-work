@@ -387,7 +387,7 @@ export async function createWorksheet(problems, settings = {}) {
     });
     for (const item of entry.items) {
       if (item.type === 'label') {
-        page.drawText(`${item.number}.${item.continued ? ' (continued)' : ''}`, {
+        if (item.text) page.drawText(item.text, {
           x: item.x, y: layout.height - item.y - 10, size: 10, font, color: rgb(0, 0, 0),
         });
         continue;

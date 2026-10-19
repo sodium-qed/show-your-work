@@ -16,7 +16,7 @@ const target = new URL(origin);
 const offline = target.protocol === 'file:';
 const output = resolve(root, process.env.E2E_OUTPUT || (offline ? 'tests/output/preferences-offline' : 'tests/output/preferences'));
 const key = 'show-your-work.preferences.v1';
-const defaultWorksheet = { title: 'Math practice', paper: 'letter', margin: '36', nameLine: true, alignment: 'center' };
+const defaultWorksheet = { title: 'Math practice', paper: 'letter', margin: '36', nameLine: true, alignment: 'center', numbering: false };
 const defaultProblem = { space: 2, scale: 100, fit: 'flow', pageBreak: false };
 const results = [], errors = [], httpRequests = [], externalRequests = [];
 let browser, context, page, server;
@@ -73,6 +73,7 @@ async function fresh({ storageValue, blockedStorage } = {}) {
   page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
   page.setDefaultTimeout(20000);
   await page.goto(origin, { waitUntil: 'networkidle' });
+  await page.waitForFunction(() => document.querySelector('#settings-status')?.textContent.trim());
   await page.locator('#question-alignment').waitFor({ state: 'visible' });
   assert.equal(await page.locator('.problem-card').count(), 0);
 }
@@ -96,9 +97,9 @@ async function selectCrop(value = rect) {
   }
 }
 async function focusCrop() { await page.locator('#crop-layer').focus(); }
-async function addCrop(shortcut) {
+async function addCrop(shortcut, value = rect) {
   const previous = await cards().count();
-  await selectCrop();
+  await selectCrop(value);
   if (shortcut) { await focusCrop(); await page.keyboard.press(shortcut); }
   else await page.locator('#add-problem').click();
   await idle(); await count(previous + 1);
@@ -127,6 +128,7 @@ const worksheet = () => page.evaluate(() => ({
   title: document.querySelector('#worksheet-title').value, paper: document.querySelector('#paper-size').value,
   margin: document.querySelector('#page-margin').value, nameLine: document.querySelector('#name-line').checked,
   alignment: document.querySelector('#question-alignment').value,
+  numbering: document.querySelector('#number-problems').checked,
 }));
 const queueShape = () => cards().evaluateAll(nodes => nodes.map(node => ({ id: node.dataset.id, regions: node.querySelectorAll('.region-thumb').length })));
 async function noMutation(action, message) {
@@ -160,11 +162,13 @@ function geometry(pdf) {
       for (const match of stream.matchAll(/^([-\d.]+) ([-\d.]+) ([-\d.]+) ([-\d.]+) re$/gm)) clips.push(match.slice(1).map(Number));
     }
   }
-  const source = imageClipIntervals(pdf)[0];
-  const [number, generation] = source.image.split(' ').map(Number);
-  const image = pdf.context.lookup(PDFRef.of(number, generation));
-  return { clips, pixelWidth: source.pixelWidth, pixelHeight: source.pixelHeight,
-    imageHash: createHash('sha256').update(image.getContents()).digest('hex') };
+  const images = imageClipIntervals(pdf).map(source => {
+    const [number, generation] = source.image.split(' ').map(Number);
+    const image = pdf.context.lookup(PDFRef.of(number, generation));
+    return { pixelWidth: source.pixelWidth, pixelHeight: source.pixelHeight,
+      imageHash: createHash('sha256').update(image.getContents()).digest('hex') };
+  });
+  return { clips, images };
 }
 
 let failure;
@@ -234,13 +238,14 @@ try {
     assert.equal(await cards().last().locator('.region-thumb').count(), 1);
   });
 
-  const preferredWorksheet = { title: 'Remember these settings', paper: 'a4', margin: '72', nameLine: false, alignment: 'left' };
+  const preferredWorksheet = { title: 'Remember these settings', paper: 'a4', margin: '72', nameLine: false, alignment: 'left', numbering: true };
   await step('Defaults inherit through every creation path while existing cards stay independent', async () => {
     await fresh(); await upload(); const first = await addCrop();
     for (const [name, value] of Object.entries({ space: 2.75, scale: 75, fit: 'shrink', pageBreak: true })) await field(first, name, value);
     await page.locator('#worksheet-title').fill(preferredWorksheet.title);
     await page.locator('#paper-size').selectOption('a4'); await page.locator('#page-margin').selectOption('72');
     await page.locator('#name-line').uncheck(); await page.locator('#question-alignment').selectOption('left');
+    await page.locator('#number-problems').check();
     const second = await addCrop('p');
     assert.deepEqual(await values(second), { space: 2.75, scale: 75, fit: 'shrink', pageBreak: true });
     await field(second, 'scale', 125);
@@ -298,30 +303,62 @@ try {
     }
   });
 
-  await step('Center and left export geometry preserve crop pixels, aspect, pagination, and numeric labels', async () => {
+  await step('Unequal crops share one centered column without stretching or duplicate default numbering', async () => {
     await fresh(); await upload(); const id = await addCrop(); await field(id, 'space', 0.5); await field(id, 'scale', 75);
+    const second = await addCrop(undefined, { x: 0.08, y: 0.42, w: 0.3, h: 0.12 }); await field(second, 'scale', 100);
+    const third = await addCrop(undefined, { x: 0.05, y: 0.025, w: 0.85, h: 0.95 });
+    await field(third, 'fit', 'shrink'); await field(third, 'space', 6); await field(third, 'pageBreak', true);
     assert.equal(await page.locator('#question-alignment').inputValue(), 'center');
+    assert.equal(await page.locator('#number-problems').isChecked(), false);
     await page.locator('#worksheet-title').fill('Aligned practice');
     const centered = await savePdf('centered.pdf'); const center = geometry(centered.pdf);
-    assert.equal(centered.pdf.getPageCount(), 1); assert.equal(center.clips.length, 1);
-    assert.ok(centered.text[0].includes('1.')); assert.ok(centered.text.flat().every(text => !/^Problem \d/.test(text)));
+    assert.equal(centered.pdf.getPageCount(), 2); assert.equal(center.clips.length, 3);
+    assert.ok(centered.text.flat().every(text => !/^\d+\.(?: \(continued\))?$/.test(text)), 'Default exports add no numbering on top of the original questions.');
     const [centerX, centerY, width, height] = center.clips[0];
     assert.ok(Math.abs(width - 612 * rect.w * 0.75) < 1e-6);
     assert.ok(Math.abs(height - 792 * rect.h * 0.75) < 1e-6);
+    assert.ok(Math.abs(centerY - (792 - (36 + 50) - height)) < 1e-6, 'Default first crops have no invisible numbering reserve.');
     assert.ok(Math.abs(centerX - (612 - width) / 2) < 1e-6);
+    assert.ok(Math.abs(center.clips[1][2] - 612 * 0.3) < 1e-6);
+    assert.ok(center.clips[2][2] < width, 'The widest source crop becomes narrower after its explicit fit operation.');
+    for (const clip of center.clips) assert.ok(Math.abs(clip[0] - centerX) < 1e-6, 'All problems and pages share the widest FINAL crop’s left edge.');
     await page.locator('#question-alignment').selectOption('left');
     const leftAligned = await savePdf('left-aligned.pdf'); const left = geometry(leftAligned.pdf);
-    assert.equal(leftAligned.pdf.getPageCount(), 1);
-    assert.deepEqual(left.clips[0], [36, centerY, width, height]);
-    assert.equal(center.imageHash, left.imageHash, 'Alignment cannot rewrite original crop pixels.');
-    assert.equal(center.pixelWidth, left.pixelWidth); assert.equal(center.pixelHeight, left.pixelHeight);
-    assert.ok(Math.abs(width / height - center.pixelWidth / center.pixelHeight) < 0.005);
+    assert.equal(leftAligned.pdf.getPageCount(), 2);
+    for (const [index, clip] of center.clips.entries()) {
+      assert.deepEqual(left.clips[index], [36, ...clip.slice(1)], 'Alignment changes only the horizontal origin.');
+      assert.ok(Math.abs(clip[2] / clip[3] - center.images[index].pixelWidth / center.images[index].pixelHeight) < 0.005, 'Every differently sized crop keeps its aspect ratio.');
+    }
+    assert.deepEqual(center.images, left.images, 'Moving the common column preserves every original crop image byte.');
+
+    await page.locator('#question-alignment').selectOption('center'); await page.locator('#number-problems').check();
+    const numbered = await savePdf('numbered.pdf'); const withNumbers = geometry(numbered.pdf);
+    for (const label of ['1.', '2.', '3.']) assert.ok(numbered.text.flat().includes(label));
+    assert.ok(numbered.text.flat().every(text => !/^Problem \d/.test(text)));
+    assert.ok(Math.abs(withNumbers.clips[0][1] - (centerY - 18)) < 1e-6, 'Explicit numbering reserves its visible label height.');
+    assert.deepEqual(withNumbers.images, center.images, 'Optional labels do not alter question image pixels.');
+    for (const clip of withNumbers.clips) assert.ok(Math.abs(clip[0] - centerX) < 1e-6);
+
     await field(id, 'space', 10); const continued = await savePdf('numeric-continuation.pdf');
-    assert.ok(continued.pdf.getPageCount() > 1); assert.ok(continued.text.flat().includes('1. (continued)'));
-    assert.ok(continued.text.flat().every(text => !/^Problem \d/.test(text)));
+    assert.ok(continued.pdf.getPageCount() > 2); assert.ok(continued.text.flat().includes('1. (continued)'));
+    await page.locator('#number-problems').uncheck(); const plainContinued = await savePdf('unnumbered-continuation.pdf');
+    assert.ok(plainContinued.pdf.getPageCount() > 2); assert.ok(plainContinued.text.flat().includes('Continued'));
+    assert.ok(plainContinued.text.flat().every(text => !/^\d+\.(?: \(continued\))?$/.test(text)));
+    const writingHeights = [];
+    for (const [document, numbering] of [[continued, true], [plainContinued, false]]) {
+      const [firstCrop, secondCrop] = geometry(document.pdf).clips;
+      // Actual PDF placement determines the reserved blank area: the rest of
+      // page one plus page two after its continuation label and before problem
+      // two's gap/optional label. Ten inches must remain ten inches in either mode.
+      const writingHeight = firstCrop[1] - 54 + (792 - (36 + 50) - 18)
+        - (secondCrop[1] + secondCrop[3]) - 10 - (numbering ? 18 : 0);
+      assert.ok(Math.abs(writingHeight - 720) < 1e-6, 'Toggling added numbers preserves all requested writing space across continuation pages.');
+      writingHeights.push(writingHeight);
+    }
     await page.locator('#preview-tab').click(); await idle();
-    await page.screenshot({ path: resolve(output, 'numeric-preview.png'), fullPage: true });
-    return { centered: center.clips[0], left: left.clips[0], unchangedImageHash: center.imageHash, continuationPages: continued.pdf.getPageCount() };
+    await page.screenshot({ path: resolve(output, 'column-preview.png'), fullPage: true });
+    return { centered: center.clips, left: left.clips, unchangedImages: center.images,
+      numberedPages: numbered.pdf.getPageCount(), numericContinuationPages: continued.pdf.getPageCount(), plainContinuationPages: plainContinued.pdf.getPageCount(), writingHeights };
   });
 
   await step('No runtime errors or external requests during preference and shortcut workflows', async () => {

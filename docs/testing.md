@@ -79,7 +79,9 @@ These checks describe the intended verification scope. A listed check is not a c
 - Change writing height, scale, paper, margins, title, name/date line, manual page breaks, and overflow mode. Check continuation labels, preserved blank space, and warnings for small or oversized content.
 - Exercise **P** to add a crop and **Q** to append to a selected problem. Confirm neither shortcut activates while typing, a dialog is open, processing is busy, preview is active, or a saved crop is being edited.
 - Change problem defaults and worksheet preferences, then reload. Verify preferences return while imported files and question cards do not. Confirm **Reset saved settings** preserves existing card settings and **Reset to 100%** updates the intended problem.
-- Check centered and left-aligned output, plain generated worksheet fonts, unchanged source-crop appearance, and usable desktop/mobile scrolling.
+- Check that **Centered** gives different-width crops one shared left edge based on the widest final crop, while **Left aligned** places that edge at the margin. Confirm alignment leaves crop dimensions and internal padding unchanged.
+- Verify **Add worksheet numbers** defaults off and is remembered. With it off, check preserved source numbers, no initial label reserve, and neutral **Continued** labels. With it on, check additional sequential numbers without altering the source crop.
+- Check plain generated worksheet fonts, unchanged source-crop appearance, and usable desktop/mobile scrolling.
 - Preview and export the worksheet, then edit it and export again. Confirm each export reflects current state and the preview uses the exported PDF bytes.
 - Inspect the downloaded PDF for page dimensions, complete question content, sensible pagination, and readable notation at actual print size.
 - Build the static output and load it through `npm run preview`. Confirm PDF rendering, its worker, font assets, the sample, and export work without CDN requests.
@@ -88,15 +90,15 @@ These checks describe the intended verification scope. A listed check is not a c
 
 ## Recorded results
 
-These checks passed on 2026-10-19 using Node.js 24.19.0 and Playwright 1.56.1 with headless Chromium 141.
+Checks were run on 2026-10-19 using Node.js 24.19.0 and Playwright 1.56.1 with headless Chromium 141, against both the source app and the rebuilt standalone HTML.
 
 | Check | Result |
 | --- | --- |
-| `npm test` | **50 tests passed:** 15 detection, 24 layout, and 11 preference tests. Layout coverage includes 400 seeded cases; detection includes extraction from the sample PDF. |
+| `npm test` | **57 tests passed:** 15 detection, 30 layout, and 12 preference tests. Layout coverage includes 400 seeded cases; detection includes extraction from the sample PDF. |
 | Source `npm run test:e2e` | **12 workflow stages passed**, with no runtime errors, failed requests, or external requests. All 13 exported pages matched independent PDF.js renderings pixel for pixel. |
-| Source `npm run test:ui` | **8 focused stages passed**, with no runtime errors or external requests. |
+| Source `npm run test:ui` | **8 focused stages passed**, with 12 exported pages inspected for geometry and numbering, and no runtime errors or external requests. |
 | Offline HTML `test:e2e` | **12 workflow stages passed** through `file://` with browser networking disabled. All 13 exported pages matched their previews; zero HTTP/HTTPS requests or runtime errors occurred. |
-| Offline HTML `test:ui` | **8 focused stages passed**, including saved preferences, shortcut safeguards, resets, storage failures, and exported alignment. Zero HTTP/HTTPS requests or runtime errors occurred. |
+| Offline HTML `test:ui` | **8 focused stages passed**, including shared-column geometry, optional numbering, saved preferences, shortcut safeguards, resets, and storage failures. Zero HTTP/HTTPS requests or runtime errors occurred. |
 | `npm run build` | Regenerated identical root and `dist/` standalone HTML files, approximately 7.71 MiB each, with the PDF resources, sample, and license notices embedded. |
 
 The focused UI suite verified:
@@ -105,11 +107,12 @@ The focused UI suite verified:
 - Defaults inherited by keyboard, button, suggestion, and pasted-text creation; existing cards remain independent.
 - Preferences restored after reload while source files and problem cards remain unsaved; scale and settings resets affect the intended values.
 - Safe editing with corrupt preferences, denied storage access, and exhausted storage quota.
-- Centered and left-aligned exported geometry with unchanged crop pixels, dimensions, pagination, and numeric continuation labels.
+- Three unequal crops across two pages sharing one centered column based on the widest final crop, including a source crop reduced by **Fit to one page**. Left alignment changes only the shared horizontal position; image bytes, dimensions, aspect ratios, and pagination remain unchanged.
+- Remembered optional numbering, off by default with no initial label reserve; additional sequential labels when enabled and neutral **Continued** labels when disabled. Both numbering modes preserve a requested 10 inches of writing space across continuation pages.
 
 The full workflow suite also covered manual scans, multipage questions, reorder/remove/edit controls, source images and Unicode text, preview invalidation, oversized continuation and fit modes, corrupt-file recovery, rotated A4 output, the sample, and a 390-pixel-wide layout. The 13 checked pages comprise a 3-page worksheet, its 4-page revision, 3-page overflow, 1-page shrink, 1-page PNG export, and 1-page rotated A4 export.
 
-Source evidence is in `tests/output/e2e-results.json` and `tests/output/preferences/preferences-shortcuts-results.json`; offline evidence is in the corresponding `tests/output/offline/` and `tests/output/preferences-offline/` directories. The focused suite also writes `centered.pdf`, `left-aligned.pdf`, and `numeric-continuation.pdf`. Actual PDF inspection confirmed alignment changes preserve the embedded crop image and its width/height. The offline workflow audit recorded only local file and blob resources, including blob workers.
+Source evidence is in `tests/output/e2e-results.json` and `tests/output/preferences/preferences-shortcuts-results.json`; offline reports use the corresponding `tests/output/offline/` and `tests/output/preferences-offline/` directories. The focused suite writes `centered.pdf`, `left-aligned.pdf`, `numbered.pdf`, `numeric-continuation.pdf`, and `unnumbered-continuation.pdf`, containing 12 pages in total. Actual PDF inspection confirmed that alignment and added labels preserve every embedded crop image. The offline workflow audit recorded only local file and blob resources, including blob workers.
 
 Coverage is limited to Chromium in this environment. Physical printing and other browser engines were not tested. PNG import/export was exercised end to end; JPEG/WebP, password handling, every size-limit boundary, arbitrary damaged PDFs, and complex raster-image patterns need broader coverage. Known examples do not establish universal extraction accuracy or print legibility.
 
@@ -117,6 +120,6 @@ Coverage is limited to Chromium in this environment. Physical printing and other
 
 Automated layout checks cannot establish the legibility of every possible mathematical source. For a worksheet intended for distribution, inspect the generated PDF at 100% and print a representative page at **Actual size**. Low-resolution scans, tiny source notation, missing system-font glyphs in pasted text, and crops split through content require a source or layout adjustment.
 
-## GitHub distribution verification
+## Distribution layout
 
-Before publishing to `sodium-qed/show-your-work`, the build and all 50 unit tests passed. The 12 workflow stages and 8 focused UI stages passed both against the development app and the offline HTML. The development template lives at `src/index.html`; the root `index.html` and `margin.html` are identical standalone distributions. `LICENSE` remains the repository's original MIT license and is also embedded in the HTML notices.
+The development template lives at `src/index.html`; the root `index.html` and `margin.html` are identical standalone distributions. `LICENSE` remains the repository's original MIT license and is also embedded in the HTML notices.

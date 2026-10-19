@@ -11,21 +11,20 @@ const crops = layout => items(layout).filter(item => item.type === 'region');
 const totalSpace = (layout, number) => items(layout).filter(item => item.type === 'space' && item.number === number).reduce((sum, item) => sum + item.height, 0);
 
 function assertAlignment(layout, alignment = 'center') {
-  const widths = new Map();
-  for (const item of crops(layout)) widths.set(item.number, Math.max(widths.get(item.number) || 0, item.width));
+  const columnWidth = crops(layout).reduce((widest, item) => Math.max(widest, item.width), 0);
   const contentWidth = layout.width - layout.margin * 2;
   for (const item of items(layout)) {
     if (item.type === 'space') {
       close(item.x, layout.margin, 'writing space starts at the printable margin');
       close(item.width, contentWidth, 'writing space retains the full printable width');
     } else {
-      const expectedX = layout.margin + (alignment === 'left' ? 0 : (contentWidth - widths.get(item.number)) / 2);
-      close(item.x, expectedX, 'labels and crop slices share the problem block alignment');
+      const expectedX = layout.margin + (alignment === 'left' ? 0 : (contentWidth - columnWidth) / 2);
+      close(item.x, expectedX, 'all labels and crop slices share the worksheet column alignment');
     }
   }
 }
 
-function assertLayout(layout, problems) {
+function assertLayout(layout, problems, settings = {}) {
   const seenProblems = new Set();
   const segments = new Map();
   for (const [pageIndex, page] of layout.pages.entries()) {
@@ -35,7 +34,7 @@ function assertLayout(layout, problems) {
     let currentNumber = null;
     for (const [itemIndex, item] of page.items.entries()) {
       for (const key of ['x', 'y', 'height']) assert.ok(Number.isFinite(item[key]), `${key} must be finite`);
-      assert.ok(item.height > 0, 'items have positive height');
+      assert.ok(item.height > 0 || (item.type === 'label' && item.text === '' && item.height === 0), 'only an invisible label marker may have zero height');
       assert.ok(item.y >= previousBottom - tolerance, 'items do not overlap');
       assert.ok(item.x >= layout.margin - tolerance, 'left margin is respected');
       assert.ok(item.y >= layout.top - tolerance, 'header clearance is respected');
@@ -45,6 +44,9 @@ function assertLayout(layout, problems) {
         const next = page.items[itemIndex + 1];
         assert.ok(next && next.type !== 'label' && next.number === item.number, 'labels must have content on the same page');
         assert.equal(item.continued, seenProblems.has(item.number), 'continuation labels follow the initial label');
+        const expectedText = settings.numbering === true ? `${item.number}.${item.continued ? ' (continued)' : ''}` : (item.continued ? 'Continued' : '');
+        assert.equal(item.text, expectedText, 'label text follows the requested numbering mode');
+        assert.equal(item.height, expectedText ? LABEL_HEIGHT : 0, 'invisible markers reserve no space');
         seenProblems.add(item.number);
         currentNumber = item.number;
       } else {
@@ -109,7 +111,8 @@ test('problems are centered by default without enlarging crops on either paper s
       close(region.x, (layout.width - 200) / 2);
       assert.equal(region.width, 200, 'centering does not stretch the crop to the printable width');
       assert.equal(region.height, 100);
-      assert.equal(layout.pages[0].items[0].height, LABEL_HEIGHT);
+      assert.equal(layout.pages[0].items[0].height, 0);
+      close(region.y, layout.top, 'the default unnumbered crop has no invisible label reserve');
       assert.deepEqual(planWorksheet(input, { ...settings, alignment: 'center' }), layout);
       assertAlignment(layout);
       assertLayout(layout, input);
@@ -128,7 +131,7 @@ test('explicit left alignment preserves the margin for labels and all crop regio
   }
 });
 
-test('each multi-region problem centers its whole block with a shared left edge', () => {
+test('all multi-region problems share one centered worksheet column', () => {
   const input = [
     { regions: [crop('first-narrow', 120, 60), crop('first-wide', 320, 80)], space: 72, scale: 100 },
     problem('second', 50, { space: 36 }),
@@ -137,7 +140,7 @@ test('each multi-region problem centers its whole block with a shared left edge'
   const first = crops(layout).filter(item => item.number === 1);
   close(first[0].x, 146);
   close(first[1].x, 146);
-  close(crops(layout).find(item => item.number === 2).x, 206);
+  close(crops(layout).find(item => item.number === 2).x, 146);
   assert.deepEqual(first.map(item => [item.width, item.height]), [[120, 60], [320, 80]]);
   assertAlignment(layout);
   assertLayout(layout, input);
@@ -153,15 +156,16 @@ test('overflow and writing-space continuation pages retain the complete problem 
   assertLayout(layout, input);
 });
 
-test('shrink-to-page centers the final fitted block and preserves aspect ratios and blank space', () => {
-  const input = [{ regions: [crop('wide', 1200, 1800), crop('narrow', 200, 900)], space: 216, scale: 100, fit: 'shrink' }];
+test('the shared column uses final fitted widths across pages while preserving aspect ratios and blank space', () => {
+  const input = [problem('unshrunk', 80), { regions: [crop('wide', 1200, 1800), crop('narrow', 200, 900)], space: 216, scale: 100, fit: 'shrink', pageBreak: true }];
   const layout = planWorksheet(input, { paper: 'a4', margin: 54, title: 'Practice', nameLine: true });
-  assert.equal(layout.pages.length, 1);
+  assert.equal(layout.pages.length, 2);
   assert.ok(layout.warnings.some(warning => warning.kind === 'shrink'));
   const finalWidth = Math.max(...crops(layout).map(item => item.width));
-  assert.ok(finalWidth < layout.width - layout.margin * 2);
+  assert.equal(finalWidth, 200, 'the unshrunk crop is wider than the much wider source after fitting');
+  assert.ok(crops(layout).filter(item => item.number === 2).every(item => item.width < finalWidth));
   close(crops(layout)[0].x, (layout.width - finalWidth) / 2);
-  close(totalSpace(layout, 1), 216);
+  close(totalSpace(layout, 2), 216);
   assertAlignment(layout);
   assertLayout(layout, input);
 });
@@ -181,6 +185,104 @@ test('switching alignment changes only label and region x coordinates across mix
   assertAlignment(left, 'left');
   assertLayout(centered, input);
   assertLayout(left, input);
+});
+
+test('numbering is off unless explicitly true and reserves no hidden first-label space', () => {
+  const input = [problem('textbook-seven', 100, { space: 72 }), problem('textbook-nine', 80, { space: 36 })];
+  const defaultLayout = planWorksheet(input);
+  for (const numbering of [false, undefined, null, 0, 'true']) {
+    const layout = planWorksheet(input, { numbering });
+    assert.deepEqual(layout, defaultLayout);
+    assert.ok(items(layout).filter(item => item.type === 'label').every(item => item.text === '' && item.height === 0));
+    close(crops(layout)[0].y, layout.top);
+    close(crops(layout)[1].y, layout.top + 100 + 72 + GAP);
+    assertLayout(layout, input);
+  }
+  const numbered = planWorksheet(input, { numbering: true });
+  assert.deepEqual(items(numbered).filter(item => item.type === 'label').map(item => item.text), ['1.', '2.']);
+  close(crops(numbered)[0].y, numbered.top + LABEL_HEIGHT);
+  close(crops(numbered)[1].y - crops(defaultLayout)[1].y, LABEL_HEIGHT * 2);
+  assert.deepEqual(crops(numbered).map(item => [item.width, item.height]), crops(defaultLayout).map(item => [item.width, item.height]));
+  assertLayout(numbered, input, { numbering: true });
+});
+
+test('first-page and continuation label budgets retain full source coverage at an exact two-page boundary', () => {
+  for (const numbering of [false, true]) {
+    const settings = { numbering, paper: 'a4', margin: 54, title: 'Practice', nameLine: true };
+    const geometry = planWorksheet([], settings);
+    const capacity = geometry.bottom - geometry.top;
+    const firstCapacity = capacity - (numbering ? LABEL_HEIGHT : 0);
+    const continuationCapacity = capacity - LABEL_HEIGHT;
+    const input = [problem('two-exact-pages', firstCapacity + continuationCapacity)];
+    const layout = planWorksheet(input, settings);
+    assert.equal(layout.pages.length, 2);
+    const labels = items(layout).filter(item => item.type === 'label');
+    assert.deepEqual(labels.map(item => item.text), numbering ? ['1.', '1. (continued)'] : ['', 'Continued']);
+    close(crops(layout)[0].height, firstCapacity);
+    close(crops(layout)[1].height, continuationCapacity);
+    close(crops(layout)[0].y, layout.top + (numbering ? LABEL_HEIGHT : 0));
+    close(crops(layout)[1].y, layout.top + LABEL_HEIGHT);
+    assertAlignment(layout);
+    assertLayout(layout, input, settings);
+  }
+});
+
+test('removing initial numbering can fit content on one page without changing its dimensions', () => {
+  const geometry = planWorksheet([]);
+  const capacity = geometry.bottom - geometry.top;
+  const input = [problem('nearly-full-page', capacity - LABEL_HEIGHT / 2)];
+  const unnumbered = planWorksheet(input);
+  const numbered = planWorksheet(input, { numbering: true });
+  assert.equal(unnumbered.pages.length, 1);
+  assert.equal(numbered.pages.length, 2);
+  assert.equal(crops(unnumbered)[0].sourceHeight, 1);
+  close(crops(unnumbered)[0].height, capacity - LABEL_HEIGHT / 2);
+  close(crops(numbered).reduce((sum, item) => sum + item.height, 0), crops(unnumbered)[0].height);
+  assertLayout(unnumbered, input);
+  assertLayout(numbered, input, { numbering: true });
+});
+
+test('a fresh unnumbered problem uses the initial page capacity after preceding content', () => {
+  const geometry = planWorksheet([]);
+  const capacity = geometry.bottom - geometry.top;
+  const input = [problem('preceding', 50), problem('nearly-full', capacity - 9)];
+  const layout = planWorksheet(input);
+  assert.equal(layout.pages.length, 2);
+  assert.deepEqual(crops(layout).map(item => item.sourceHeight), [1, 1]);
+  assert.deepEqual(layout.pages.map(page => page.items[0].text), ['', '']);
+  close(crops(layout)[1].y, layout.top);
+  assertLayout(layout, input);
+});
+
+test('later regions respect the smaller continuation capacity without wasting initial-page room', () => {
+  const geometry = planWorksheet([]);
+  const capacity = geometry.bottom - geometry.top;
+  for (const firstHeight of [1, 100]) {
+    const input = [{ regions: [crop('first', 200, firstHeight), crop('near-page', 200, capacity - 9)], space: 0 }];
+    const layout = planWorksheet(input);
+    assert.equal(layout.pages.length, firstHeight === 1 ? 1 : 2);
+    if (firstHeight === 1) assert.deepEqual(crops(layout).map(item => item.sourceHeight), [1, 1]);
+    else assert.equal(layout.pages[1].items[0].text, 'Continued');
+    assertLayout(layout, input);
+  }
+});
+
+test('one-page fit can use reclaimed label height while preserving writing space and proportional scale', () => {
+  const geometry = planWorksheet([]);
+  const capacity = geometry.bottom - geometry.top;
+  const input = [problem('tight-fit', 1000, { space: capacity - 9, fit: 'shrink' })];
+  const unnumbered = planWorksheet(input);
+  const numbered = planWorksheet(input, { numbering: true });
+  assert.equal(unnumbered.pages.length, 1);
+  assert.ok(unnumbered.warnings.some(warning => warning.kind === 'shrink'));
+  close(crops(unnumbered)[0].height, 9);
+  assert.equal(numbered.pages.length, 3);
+  assert.ok(numbered.warnings.some(warning => warning.kind === 'overflow'));
+  assert.ok(!numbered.warnings.some(warning => warning.kind === 'shrink'));
+  close(totalSpace(unnumbered, 1), capacity - 9);
+  close(totalSpace(numbered, 1), capacity - 9);
+  assertLayout(unnumbered, input);
+  assertLayout(numbered, input, { numbering: true });
 });
 
 test('empty input and unfinished empty cards produce no pages or phantom labels', () => {
@@ -244,17 +346,19 @@ test('whitespace near the crop top does not waste a page on a tiny fragment', ()
   const input = [{ regions: [crop('tall', 200, 1500, [0.001])], space: 0 }];
   const layout = planWorksheet(input);
   assert.equal(layout.pages.length, 3);
-  close(crops(layout)[0].height, layout.bottom - layout.top - LABEL_HEIGHT);
+  close(crops(layout)[0].height, layout.bottom - layout.top);
   assert.ok(crops(layout).every(item => item.height >= 100));
   assertLayout(layout, input);
 });
 
-test('writing-space totals remain exact including fractional points and requests above ten inches', () => {
-  for (const space of [0, 0.001, 0.125, 36, 720, 1400.75]) {
-    const input = [problem('space', 100, { space })];
-    const layout = planWorksheet(input);
-    close(totalSpace(layout, 1), space);
-    assertLayout(layout, input);
+test('both numbering modes preserve writing-space totals including fractional points and requests above ten inches', () => {
+  for (const numbering of [false, true]) {
+    for (const space of [0, 0.001, 0.125, 36, 720, 1400.75]) {
+      const input = [problem('space', 100, { space })];
+      const layout = planWorksheet(input, { numbering });
+      close(totalSpace(layout, 1), space);
+      assertLayout(layout, input, { numbering });
+    }
   }
 });
 
@@ -284,14 +388,17 @@ test('impossible one-page writing space flows with an accurate warning and no sp
 test('exact page-boundary arithmetic does not generate a final sliver page', () => {
   for (const paper of ['letter', 'a4']) {
     for (const margin of [36, 54, 72]) {
-      for (const space of [0, 0.1, 72.3, 200.7]) {
-        const settings = { paper, margin, title: 'Practice', nameLine: true };
-        const geometry = planWorksheet([], settings);
-        const height = geometry.bottom - geometry.top - LABEL_HEIGHT - space;
-        const input = [problem('exact', height, { space })];
-        const layout = planWorksheet(input, settings);
-        assert.equal(layout.pages.length, 1, `${paper}/${margin}/${space}`);
-        assertLayout(layout, input);
+      for (const numbering of [false, true]) {
+        for (const space of [0, 0.1, 72.3, 200.7]) {
+          const settings = { paper, margin, title: 'Practice', nameLine: true, numbering };
+          const geometry = planWorksheet([], settings);
+          const height = geometry.bottom - geometry.top - (numbering ? LABEL_HEIGHT : 0) - space;
+          const input = [problem('exact', height, { space })];
+          const layout = planWorksheet(input, settings);
+          assert.equal(layout.pages.length, 1, `${paper}/${margin}/${numbering}/${space}`);
+          close(items(layout).at(-1).y + items(layout).at(-1).height, layout.bottom);
+          assertLayout(layout, input, settings);
+        }
       }
     }
   }
@@ -367,13 +474,13 @@ test('seeded layouts preserve geometry, source coverage, labels, and requested s
       pageBreak: random() < 0.15,
     }));
     const before = structuredClone(input);
-    const settings = { paper: random() < 0.5 ? 'letter' : 'a4', margin: 18 + random() * 54, title: random() < 0.5 ? 'Practice' : '', nameLine: random() < 0.5, alignment: random() < 0.5 ? 'center' : 'left' };
+    const settings = { paper: random() < 0.5 ? 'letter' : 'a4', margin: 18 + random() * 54, title: random() < 0.5 ? 'Practice' : '', nameLine: random() < 0.5, alignment: random() < 0.5 ? 'center' : 'left', numbering: random() < 0.5 };
     const layout = planWorksheet(input, settings);
-    assertLayout(layout, input);
+    assertLayout(layout, input, settings);
     assertAlignment(layout, settings.alignment);
     assert.deepEqual(input, before, 'planning does not mutate input data');
     for (const [index, p] of input.entries()) {
-      if (p.fit === 'shrink' && p.space < layout.bottom - layout.top - LABEL_HEIGHT) {
+      if (p.fit === 'shrink' && p.space < layout.bottom - layout.top - (settings.numbering ? LABEL_HEIGHT : 0)) {
         assert.equal(layout.pages.filter(page => page.items.some(item => item.number === index + 1)).length, 1, 'possible one-page fits use exactly one page');
       }
     }
