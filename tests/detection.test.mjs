@@ -128,3 +128,172 @@ test('real exercise zero and aligned compact exercise columns are preserved', ()
     }
   }
 });
+
+test('independent paragraph columns keep every continuation through the next label', () => {
+  const words = [];
+  const cells = [[1, 40, 100, 4], [2, 310, 106, 3], [3, 40, 160, 5], [4, 310, 146, 6], [5, 40, 240, 2], [6, 310, 240, 3]];
+  for (const [n, x, base, count] of cells) {
+    words.push(word(`${n}.`, x, base, { bold: true }));
+    for (let i = 0; i < count; i++) words.push(...line(`Content${n} continuation${i} stays here.`, x + 20, base + i * 14));
+  }
+  const result = analyze(words);
+  assert.deepEqual(numbers(result), [1, 2, 3, 4, 5, 6]);
+  for (const [n, x, , count] of cells) {
+    const a = result.anchors.find(a => a.number === n);
+    assert.match(a.text, new RegExp(`continuation${count - 1}`), `problem ${n} keeps its final line`);
+    for (const other of cells.filter(c => c[0] !== n)) assert.doesNotMatch(a.text, new RegExp(`Content${other[0]}\\b`));
+    if (x === 40) assert.ok(a.box.x1 < 310 && a.right < 310, `problem ${n} stays in the left column`);
+  }
+});
+
+test('compact consecutive rows stay separate while neighboring columns may be skewed', () => {
+  for (const ocr of [false, true]) for (const columns of [1, 2]) {
+    const words = [];
+    for (let row = 0; row < 3; row++) for (let col = 0; col < columns; col++) {
+      const n = row * columns + col + 1, x = 40 + col * 170, base = 100 + row * 12 + col * 6;
+      words.push(word(`${n}.`, x, base, { bold: true }), word(`item${n}`, x + 20, base));
+    }
+    const result = analyze(words, { ocr });
+    assert.equal(result.anchors.length, 3 * columns);
+    for (const a of result.anchors) {
+      assert.equal(a.text, `item${a.number}`, `exercise ${a.number}, ${columns} columns, OCR=${ocr}`);
+      assert.ok(a.top <= a.y0 && a.limit >= a.y1);
+    }
+  }
+});
+
+test('skewed bare-label grids retain tall formulas and their fraction parts', () => {
+  const words = [...line('Exer. 1–6: Evaluate.', 40, 60)];
+  const cells = [[1, 40, 100], [2, 210, 109], [3, 40, 170], [4, 210, 177], [5, 40, 240], [6, 210, 249]];
+  for (const [n, x, base] of cells) {
+    words.push(word(String(n), x, base));
+    words.push(word(`integral${n}`, x + 20, base, { x1: x + 35, y0: base - 24, y1: base + 17, math: true }));
+    words.push(word(`numerator${n}`, x + 42, base - 12, { size: 7, math: true }));
+    words.push(word(`denominator${n}`, x + 42, base + 12, { size: 7, math: true }));
+    words.push(word(`dx${n}`, x + 100, base, { math: true }));
+  }
+  const result = analyze(words, { ocr: true });
+  assert.deepEqual(numbers(result), [1, 2, 3, 4, 5, 6]);
+  for (const [n, x, base] of cells) {
+    const a = result.anchors.find(a => a.number === n);
+    for (const part of ['integral', 'numerator', 'denominator', 'dx']) assert.match(a.text, new RegExp(`${part}${n}\\b`));
+    assert.ok(a.box.y0 <= base - 24 && a.box.y1 >= base + 17, `problem ${n} retains all of its formula height`);
+    if (x === 40) assert.ok(a.right < 210 && a.box.x1 < 210);
+  }
+});
+
+test('a long exercise can span an inner grid column while keeping the outer column separate', () => {
+  const words = [];
+  for (const [n, x, base] of [[1, 40, 100], [2, 160, 100], [4, 40, 200], [5, 160, 200], [38, 340, 105], [40, 340, 205]]) {
+    words.push(word(`${n}.`, x, base, { bold: true }), word(`item${n}`, x + 20, base));
+  }
+  words.push(word('3.', 40, 150, { bold: true }), ...line('A long expression continues across this inner column.', 60, 150));
+  const result = analyze(words);
+  const a = result.anchors.find(a => a.number === 3);
+  assert.match(a.text, /across this inner column/);
+  assert.ok(a.box.x1 > 250 && a.right < 340);
+  assert.doesNotMatch(a.text, /item/);
+  assert.doesNotMatch(result.anchors.find(a => a.number === 5).text, /expression|inner/);
+});
+
+test('bare labels inside a merged row need column support and beat isolated equation values', () => {
+  const words = [...line('Exer. 1–6: Evaluate.', 40, 60)];
+  for (const [n, x, base] of [[1, 40, 100], [2, 85, 100], [3, 40, 150], [4, 85, 150], [5, 40, 200], [6, 85, 200]]) {
+    words.push(word(String(n), x, base), word('f(x)', x + 12, base));
+  }
+  words.push(word('4', 350, 90), word('fraction', 365, 90));
+  const result = analyze(words, { ocr: true });
+  assert.deepEqual(numbers(result), [1, 2, 3, 4, 5, 6]);
+  assert.equal(result.anchors.find(a => a.number === 4).x0, 85);
+});
+
+test('main exercise labels win same-page duplicates while unique review labels keep their scope', () => {
+  const words = [
+    ...line('Quick Review 5.4', 40, 50, { size: 14 }),
+    ...line('1. Review first.', 40, 80, { bold: true }),
+    ...line('2. Review second.', 40, 110, { bold: true }),
+    ...line('3. Review third.', 40, 140, { bold: true }),
+    ...line('Section 5.4 Exercises', 40, 230, { size: 14 }),
+    ...line('1. Main first.', 40, 260, { bold: true }),
+    ...line('2. Main second.', 310, 260, { bold: true }),
+  ];
+  for (const figures of [[], [{ x0: 35, y0: 35, x1: 270, y1: 55 }, { x0: 35, y0: 215, x1: 280, y1: 235 }]]) {
+    const result = analyze(words, { figures });
+    assert.deepEqual(numbers(result), [1, 2, 3]);
+    for (const n of [1, 2]) {
+      const a = result.anchors.find(a => a.number === n);
+      assert.equal(a.review, false);
+      assert.match(a.text, /Main/);
+    }
+    assert.equal(result.anchors.find(a => a.number === 3).review, true);
+  }
+});
+
+test('corroborated OCR labels still need layout evidence when their formulas are unreadable', () => {
+  const words = [...line('Exer. 1–6: Evaluate.', 40, 60)];
+  for (const [n, x, base] of [[1, 40, 100], [2, 210, 109], [3, 40, 170], [4, 210, 179], [5, 40, 240], [6, 210, 249]]) {
+    words.push(word(String(n), x, base, { ocrLabel: true }));
+    if (n % 2 === 0) words.push(word(`formula${n}`, x + 15, base + 20, { y0: base - 20, y1: base + 20 }));
+  }
+  // A second OCR read can also confirm a real digit inside a formula. It is
+  // still not an exercise label without column or row evidence.
+  words.push(word('1', 130, 180, { ocrLabel: true }), word('7', 130, 250, { ocrLabel: true }));
+  const result = analyze(words, { ocr: true });
+  assert.deepEqual(numbers(result), [1, 2, 3, 4, 5, 6]);
+  assert.equal(result.anchors.find(a => a.number === 1).x0, 40);
+  for (const a of result.anchors) assert.ok(a.top <= a.y0 && a.limit >= a.y1);
+});
+
+test('owned diagrams bridge the text to later subparts without reaching the next exercise', () => {
+  const words = [
+    ...line('1. Consider the diagram.', 40, 100, { bold: true }),
+    ...line('Use the dimensions shown below.', 60, 114),
+    word('y', 120, 140),
+    ...line('(a) Find the width.', 60, 295),
+    ...line('(b) Find the height.', 60, 310),
+    ...line('(c) State both dimensions.', 60, 325),
+    ...line('2. Begin the next problem.', 40, 370, { bold: true }),
+    ...line('Unrelated footer text.', 40, 750),
+  ];
+  const result = analyze(words, { figures: [{ x0: 75, y0: 145, x1: 220, y1: 260 }] });
+  const a = result.anchors.find(a => a.number === 1);
+  assert.equal(a.figures.length, 1);
+  assert.ok(a.figures[0].words.some(w => w.text === 'y'), 'the axis title is preserved outside the drawn lines');
+  assert.match(a.text, /\(c\) State both dimensions/);
+  assert.doesNotMatch(a.text, /next problem|footer/);
+  assert.doesNotMatch(result.anchors.find(a => a.number === 2).text, /footer/);
+});
+
+test('a figure before the next column can follow an explicitly referenced final exercise', () => {
+  const words = [
+    ...line('51. Evaluate the expression.', 40, 100, { bold: true }),
+    ...line('52. Evaluate the next expression.', 40, 150, { bold: true }),
+    ...line('57. Study the geometry shown in the figure.', 40, 600, { bold: true }),
+    ...line('Explain the relationship.', 60, 614),
+    ...line('58. Start the next exercise.', 310, 250, { bold: true }),
+    ...line('59. Complete the final exercise.', 310, 500, { bold: true }),
+    word('Normal', 400, 80),
+    ...line('Plane mirror', 390, 202),
+  ];
+  const result = analyze(words, { figures: [{ x0: 360, y0: 85, x1: 500, y1: 190 }] });
+  assert.equal(result.figures[0].owner, 57);
+  assert.equal(result.anchors.find(a => a.number === 51).figures, undefined);
+  assert.ok(result.figures[0].words.some(w => w.text === 'Normal'));
+  assert.ok(result.figures[0].words.some(w => w.text === 'mirror'));
+  assert.ok(result.anchors.find(a => a.number === 51).right < 310, 'the figure establishes the right column above its first label');
+});
+
+test('tall OCR words in neighboring rows cannot invert cell boundaries', () => {
+  const words = [];
+  for (const [n, base] of [[38, 168], [40, 202], [41, 234], [42, 267]]) {
+    words.push(word(`${n}.`, 340, base));
+    words.push(word(`f${n}`, 365, base, { y0: base - 20, y1: base + 10, size: 13 }));
+    words.push(word('ds', 450, base, { y0: base - 20, y1: base + 10, size: 23 }));
+  }
+  const result = analyze(words, { ocr: true });
+  for (const a of result.anchors) {
+    assert.ok(a.limit > a.base && a.top <= a.y0, `exercise ${a.number} has ordered bounds`);
+    assert.match(a.text, new RegExp(`f${a.number}\\b`));
+    for (const other of result.anchors.filter(b => b !== a)) assert.doesNotMatch(a.text, new RegExp(`f${other.number}\\b`));
+  }
+});

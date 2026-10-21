@@ -3,6 +3,31 @@
 //  2. evidence check: a field the model proposes is kept only if the request
 //     actually talks about that kind of thing (small models like to fill every field).
 
+import { parseNumbers, formatNumbers } from './numbers.js';
+
+const numberItem = String.raw`\d{1,3}(?:\s*(?:[-–—~]|\b(?:to|through|thru)\b)\s*\d{1,3})?(?:\s+(?:odd|even))?`;
+const numberList = new RegExp(
+  String.raw`^(?:(?:problems?|questions?|exercises?|numbers?)\s*:?\s*)?${numberItem}(?:(?:\s*[,，、;；&]\s*|\s+and\s+|\s+)${numberItem})*$`, 'i',
+);
+const allPagesTail = /(?:[,;]\s*|\s+)(?:(?:look|check)\s+(?:at|through)\s+|(?:search|scan|read|from|across|on|in)\s+)?all\s+(?:(?:the|loaded|source)\s+)?pages?\s*$/i;
+
+/** A complete desired-number request, or null for prose/add/remove commands. */
+export function readNumberSelection(text) {
+  let t = String(text).trim().replace(/[.!?]+$/, '').replace(allPagesTail, '').trim().replace(/[,;]\s*$/, '');
+  const exclusion = t.match(/\b(?:omit|exclude|excluding|except(?:\s+for)?|without|skip|minus|leave\s+out)\b/i);
+  let omitted = [];
+  if (exclusion) {
+    let tail = t.slice(exclusion.index + exclusion[0].length).trim();
+    if (tail.startsWith('(') && tail.endsWith(')')) tail = tail.slice(1, -1).trim();
+    if (!numberList.test(tail)) return null;
+    omitted = parseNumbers(tail);
+    t = t.slice(0, exclusion.index).trim().replace(/[,;]\s*$/, '').trim();
+  }
+  if (!numberList.test(t)) return null;
+  const excluded = new Set(omitted);
+  return parseNumbers(t).filter(n => !excluded.has(n));
+}
+
 const COLORS = {
   green: /green|绿/i, yellow: /yellow|黄/i, pink: /pink|粉|magenta/i, blue: /blue|蓝|cyan|青/i,
   orange: /orange|橙|橘/i, purple: /purple|violet|紫/i, red: /\bred\b|红/i,
@@ -20,7 +45,7 @@ const EVIDENCE = {
   graph: /graph|grid|polar|axes|axis|plot|坐标|网格|极坐标/i,
 };
 
-export const hasEvidence = (field, text) => EVIDENCE[field]?.test(text) ?? false;
+export const hasEvidence = (field, text) => EVIDENCE[field]?.test(field === 'pages' ? text.replace(allPagesTail, '') : text) ?? false;
 
 export function colorIn(text) {
   for (const [name, re] of Object.entries(COLORS)) if (re.test(text)) return name;
@@ -30,6 +55,10 @@ export function colorIn(text) {
 /** Best-effort parse. Returns the same fields as the model's update_worksheet call. */
 export function readRequest(text) {
   const t = text.trim();
+  const selection = readNumberSelection(t);
+  // Source-page scope does not change printed page count. Exclusions are resolved
+  // before lookup so omitted labels neither get selected nor trigger warnings.
+  if (selection !== null) return { add_numbers: formatNumbers(selection) };
   const out = {};
   const color = colorIn(t);
   if (color) out.highlight_color = color;
@@ -41,7 +70,7 @@ export function readRequest(text) {
   const stripped = t
     .replace(/(\d+)\s*(?:pages?|sides?|sheets?|columns?|per row|页|张|列|栏|in a row)/gi, ' ')
     .replace(/(?:a4|letter)/gi, ' ');
-  const removeRe = /(?:remove|drop|skip|without|delete|exclude|except|minus|get rid of|rid of|take out|leave out|omit|cut|不要|去掉|删掉|删除|除了|拿掉|别要)\s*((?:第?\s*\d{1,3}\s*(?:题|号)?\s*(?:[-–—~,，、&和与及]|and|to|through|odd|even|奇数|偶数|\s)*)+)/gi;
+  const removeRe = /(?:remove|drop|skip|without|delete|exclude|except|minus|get rid of|rid of|take out|leave out|omit|cut|不要|去掉|删掉|删除|除了|拿掉|别要)\s*\(?\s*((?:第?\s*\d{1,3}\s*(?:题|号)?\s*(?:[-–—~,，、&和与及]|and|to|through|odd|even|奇数|偶数|\s)*)+)\s*\)?/gi;
   const removed = [];
   let adds = stripped.replace(removeRe, (_, nums) => { removed.push(nums); return ' '; });
   if (removed.length) out.remove_numbers = removed.join(', ');
@@ -97,6 +126,7 @@ const VALID = {
  */
 export function reconcile(text, proposal = {}) {
   const rules = readRequest(text);
+  if (readNumberSelection(text) !== null) return rules;
   const out = {};
   const digits = new Set((text.match(/\d{1,3}/g) || []).map(Number));
   for (const [k, raw] of Object.entries(proposal || {})) {

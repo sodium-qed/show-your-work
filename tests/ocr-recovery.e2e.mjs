@@ -17,7 +17,7 @@ const exercises = [
   { number: 53, title: 'Travel time', x: 320, y: 436, shape: 'triangle' },
 ];
 
-async function textbook(page, { nativeFirst = false, laterPage = false } = {}) {
+async function textbook(page, { nativeFirst = false, nativeNumbers = [], declaredRange = false, laterPage = false } = {}) {
   // Rasterize just the labels. They are clearly visible but cannot be recovered
   // from PDF.js text extraction; prose and titles remain ordinary PDF text.
   const labels = await page.evaluate(numbers => numbers.map(number => {
@@ -35,9 +35,9 @@ async function textbook(page, { nativeFirst = false, laterPage = false } = {}) {
   const italic = await doc.embedFont(StandardFonts.TimesRomanItalic);
   const p = doc.addPage([612, 792]);
   p.drawText('Optimization exercises', { x: 44, y: 750, size: 18, font: bold });
-  p.drawText('Solve each problem. Include a diagram and a complete explanation.', { x: 44, y: 724, size: 11, font: italic });
+  p.drawText(declaredRange ? 'In Problems 42-53, solve each problem and explain your method.' : 'Solve each problem. Include a diagram and a complete explanation.', { x: 44, y: 724, size: 11, font: italic });
   for (const [i, e] of exercises.entries()) {
-    if (nativeFirst && e.number === 42) p.drawText('42.', { x: e.x, y: e.y, size: 14, font: bold });
+    if ((nativeFirst && e.number === 42) || nativeNumbers.includes(e.number)) p.drawText(`${e.number}.`, { x: e.x, y: e.y, size: 14, font: bold });
     else {
       const image = await doc.embedPng(labels[i]);
       p.drawImage(image, { x: e.x, y: e.y - 6, width: 34, height: 22 });
@@ -147,6 +147,12 @@ try {
   console.log(JSON.stringify(result));
   assert.deepEqual(result.selected, [42, 47, 52], 'the request recovers visible exercise labels through OCR');
   assert.ok(ocrRequests.length, 'the real browser OCR code was loaded');
+  assert.equal(await page.evaluate(() => {
+    const model = window.__syw.state.sources[0].pages[0];
+    return model.nativeWords.length > 100 && model.nativeWords.every(w => model.words.includes(w));
+  }), true, 'native prose and its exact geometry survive the visual label cross-check');
+  assert.equal(await page.evaluate(() => window.__syw.state.sources[0].pages[1].ocrAttempted), false,
+    'a complete later native-text page does not need an OCR download/read');
 
   const crops = await page.evaluate(async exercises => {
     const { cropImage } = await import('/src/document.js');
@@ -210,6 +216,7 @@ try {
   const exam = await PDFDocument.load(await readFile(`${out}/recovered-exam.pdf`));
   assert.equal(exam.getPageCount(), 2, 'recovered exercises export to a valid two-sided PDF');
   console.log('OCR RECOVERY OK: exact selection, complete problem text and figures, valid downloaded PDF');
+  const rasterPage = await page.evaluate(() => window.__syw.state.sources[0].pages[0].canvas.toDataURL('image/png'));
   await page.close();
 
   // An unavailable OCR download must leave the page usable and allow later pages
@@ -293,6 +300,52 @@ try {
   assert.deepEqual(augmented.manualAfter, augmented.manualBefore, 'manual selection identity and crop are preserved');
   console.log('PARTIAL OCR OK: prior anchors retained, missing anchors added, selected crop refreshed, manual box and work area preserved');
   await mixed.close();
+
+  // A declared range with observed labels on both sides of a gap is suspicious
+  // even though native prose and some native exercise numbers are readable.
+  const ranged = await browser.newPage({ ignoreHTTPSErrors: true });
+  ranged.on('pageerror', e => errors.push(`ranged: ${e.message}`));
+  await ranged.goto(`${BASE}/`);
+  await ranged.waitForFunction(() => !!window.__syw);
+  await addPdf(ranged, await textbook(ranged, { nativeNumbers: [42, 53], declaredRange: true }), 'range-with-raster-labels.pdf');
+  const checked = await ranged.evaluate(() => {
+    const model = window.__syw.state.sources[0].pages[0];
+    return { native: model.nativeAnalysis.anchors.map(a => a.number), numbers: model.problems.map(p => p.number),
+      attempted: model.ocrAttempted, preserved: model.nativeWords.every(w => model.words.includes(w)) };
+  });
+  assert.deepEqual(checked.native, [42, 53]);
+  assert.deepEqual(checked.numbers, [42, 47, 52, 53], 'only independently visible labels fill the declared range; no absent labels are invented');
+  assert.equal(checked.attempted, true, 'an internal declared-range gap triggers an automatic cross-check');
+  assert.equal(checked.preserved, true);
+  await ranged.close();
+  console.log('RANGE CROSS-CHECK OK: native anchors and geometry retained, observed raster labels recovered automatically');
+
+  // Simulate a stale misread stored by an earlier scan reader. A real visual
+  // retry must return to the pixels, not protect cached OCR as native PDF text.
+  const scan = await browser.newPage({ ignoreHTTPSErrors: true });
+  scan.on('pageerror', e => errors.push(`scan: ${e.message}`));
+  await scan.goto(`${BASE}/`);
+  await scan.waitForFunction(() => !!window.__syw);
+  await scan.evaluate(async dataUrl => {
+    const bytes = Uint8Array.from(atob(dataUrl.split(',')[1]), c => c.charCodeAt(0));
+    await window.__syw.addFiles([new File([bytes], 'scanned-exercises.png', { type: 'image/png' })]);
+    const model = window.__syw.state.sources[0].pages[0];
+    const old = model.analysis.anchors.find(a => a.number === 42);
+    if (!old) throw new Error('The generated scan did not initially detect label 42');
+    old.number = 99; old.word.text = '99.';
+  }, rasterPage);
+  await readVisually(scan);
+  const reread = await scan.evaluate(() => {
+    const model = window.__syw.state.sources[0].pages[0];
+    return { numbers: model.problems.map(p => p.number), nativeCount: model.nativeWords.length,
+      stale: model.words.some(w => w.text === '99.'), notice: model.readNotice };
+  });
+  assert.deepEqual(reread.numbers, [42, 47, 52, 53], 'fresh scan OCR can correct a cached misread label');
+  assert.equal(reread.nativeCount, 0);
+  assert.equal(reread.stale, false, 'cached OCR words are not merged into the new scan forever');
+  assert.doesNotMatch(reread.notice, /PDF text/i);
+  await scan.close();
+  console.log('SCAN REREAD OK: fresh visual evidence replaces stale OCR without pretending it is native text');
   assert.deepEqual(errors, [], 'no browser application errors');
 } finally {
   if (networkFailures.length) console.error(`Network failures:\n${networkFailures.join('\n')}`);

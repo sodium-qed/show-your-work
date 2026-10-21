@@ -104,13 +104,13 @@ try {
     assert.equal(exam.getPageCount(), 2, `${name}: a valid two-sided exam downloads`);
 
     await ask(page, '45, 99');
-    assert.deepEqual(await selected(page), [42, 45, 54, 57], `${name}: partial request adds only found problems`);
+    assert.deepEqual(await selected(page), [45], `${name}: partial standalone request selects only the found subset`);
     let feedback = await page.locator('#toast').textContent();
     assert.match(feedback, /99/);
     assert.match(feedback, /not found|could not find|missing|not detected/i);
     assert.equal(await page.locator('#toast').evaluate(t => t.classList.contains('bad')), true, 'partial selection is reported as a warning');
     await ask(page, '99');
-    assert.deepEqual(await selected(page), [42, 45, 54, 57], `${name}: missing request preserves existing selection`);
+    assert.deepEqual(await selected(page), [45], `${name}: missing request preserves existing selection`);
     feedback = await page.locator('#toast').textContent();
     assert.match(feedback, /99/);
     assert.match(feedback, /not found|could not find|missing|not detected/i);
@@ -118,7 +118,7 @@ try {
     assert.equal(await page.locator('#toast').evaluate(t => t.classList.contains('bad')), true, 'missing request is not reported as success');
 
     await page.evaluate(() => window.__syw.selectNumbers('46, 98'));
-    assert.deepEqual(await selected(page), [42, 45, 46, 54, 57], `${name}: direct number selector adds only found problems`);
+    assert.deepEqual(await selected(page), [46], `${name}: direct number selector sets the found subset`);
     feedback = await page.locator('#toast').textContent();
     assert.match(feedback, /98/);
     assert.match(feedback, /not found|could not find|missing|not detected/i);

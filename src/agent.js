@@ -1,5 +1,5 @@
 // Command box brain: instant rule reading, refined by the local model when it is loaded.
-import { readRequest, reconcile } from './rules.js';
+import { readRequest, readNumberSelection, reconcile } from './rules.js';
 
 let worker = null;
 let state = 'off'; // off | loading | ready | error
@@ -9,11 +9,7 @@ const pending = new Map();
 let nextId = 1;
 
 // Preserve standalone problem lists immediately, even when the optional model is ready.
-const numberItem = String.raw`\d{1,3}(?:\s*(?:[-–—~]|\b(?:to|through|thru)\b)\s*\d{1,3})?(?:\s+(?:odd|even))?`;
-const explicitNumberList = new RegExp(
-  String.raw`^(?:(?:problems?|questions?|exercises?)\s*:?\s*)?${numberItem}(?:(?:\s*[,，、;；&]\s*|\s+and\s+|\s+)${numberItem})*\s*[.!?]?$`,
-  'i',
-);
+export const isExplicitNumberList = text => readNumberSelection(text) !== null;
 
 const emit = extra => { for (const fn of listeners) fn({ state, device, ...extra }); };
 export const onAgentStatus = fn => { listeners.add(fn); fn({ state, device }); return () => listeners.delete(fn); };
@@ -46,7 +42,7 @@ export function loadAgent() {
  */
 export async function interpret(text) {
   const quick = readRequest(text);
-  if (state !== 'ready' || explicitNumberList.test(text.trim())) return { fields: quick, source: 'rules' };
+  if (state !== 'ready' || isExplicitNumberList(text)) return { fields: quick, source: 'rules' };
   const id = nextId++;
   try {
     const res = await new Promise((resolve, reject) => { pending.set(id, { resolve, reject }); worker.postMessage({ type: 'run', id, text }); });

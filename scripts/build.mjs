@@ -52,10 +52,13 @@ Serve the app over HTTP or HTTPS; opening index.html by double-click does not su
 ## Included features
 
 - Select problems by highlighter color, number/range, or a drawn box.
+- A standalone number list or range sets the numbered selection. Use add/remove for incremental changes; exclusions such as 1-50, omit (2, 4) are supported.
 - Preserve printed math and figures while removing highlighter from the output.
 - Choose page count, columns, paper size and writing space, then download or print a PDF.
 - Use the bundled sample PDF to try the app.
 - Use Read page visually above a source page to recover missing number labels or retry a failed text-reader download, then enter the requested numbers again.
+
+PDF text and visual OCR cross-check missing exercise labels. The optional Local AI interprets request text; it does not inspect page images. Review the source boxes before printing, and use Draw for an ambiguous problem.
 
 PDF libraries, fonts, character maps and their license files are bundled. Textbook files are processed locally in the browser. OCR for scans, photos, or incomplete PDF text layers and the optional local AI require external downloads. Local AI additionally requires WebGPU; the rule-based request reader works without it. This is not a fully offline package.
 

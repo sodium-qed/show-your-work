@@ -2,7 +2,7 @@ import { openFile, preparePage, cropImage, directionsImage, pngBytes, manualProb
 import { layoutExam } from './layout.js';
 import { renderExamPdf } from './render-pdf.js';
 import { parseNumbers, formatNumbers } from './numbers.js';
-import { interpret, loadAgent, onAgentStatus } from './agent.js';
+import { interpret, isExplicitNumberList, loadAgent, onAgentStatus } from './agent.js';
 import * as PDFLib from '../vendor/pdf-lib.esm.min.js';
 
 const $ = s => document.querySelector(s);
@@ -281,10 +281,31 @@ function selectColor(color, { replace = false, toggle = false } = {}) {
 }
 
 /* ---------- numbers ---------- */
-function findNumbers(nums, candidates = allProblems()) {
+function numberCandidates() {
+  const manual = [...state.selected.values()].filter(p => p.manual && p.number != null);
+  // A chosen manual crop replaces the automatic crop of that same exercise.
+  const candidates = [...allProblems().filter(p => !manual.some(m => m.sourceId === p.sourceId && m.page === p.page && m.number === p.number)), ...manual];
+  // Numbering can restart in a Quick Review section. Prefer the main exercise
+  // only within that same source; ordinary duplicate numbers remain selectable.
+  return candidates.filter(p => !p.review || !candidates.some(q =>
+    !q.review && q.sourceId === p.sourceId && q.number === p.number
+  ));
+}
+
+function findNumbers(nums, candidates = numberCandidates()) {
   const found = candidates.filter(p => nums.includes(p.number));
   const missing = nums.filter(n => !found.some(p => p.number === n));
   return { found, missing };
+}
+
+function applyNumberSelection(found, { remove = false, replace = false, empty = false } = {}) {
+  if (replace && (found.length || empty)) {
+    // A literal list/range sets the desired numbered selection, including when
+    // only part is detected. Keep unnumbered drawn boxes, which it cannot name.
+    for (const [id, p] of state.selected) if (p.number != null || !p.manual) state.selected.delete(id);
+    state.color = null;
+  }
+  for (const p of found) remove ? state.selected.delete(p.id) : state.selected.set(p.id, p);
 }
 
 const missingNumbersMessage = nums => `Not detected on the loaded pages: ${formatNumbers(nums)}. On the page containing them, choose “Read page visually” or use Draw.`;
@@ -297,8 +318,8 @@ async function selectNumbers(text, remove = false) {
   if (readingBatches) btn.textContent = 'Reading pages…';
   try {
     await waitForFiles();
-    const { found, missing } = findNumbers(nums, remove ? [...state.selected.values()] : allProblems());
-    for (const p of found) remove ? state.selected.delete(p.id) : state.selected.set(p.id, p);
+    const { found, missing } = findNumbers(nums, remove ? [...state.selected.values()] : numberCandidates());
+    applyNumberSelection(found, { remove, replace: !remove });
     if (found.length) changed();
     const messages = [];
     if (found.length) messages.push(`${remove ? 'Removed' : 'Selected'} ${formatNumbers(found.map(p => p.number))}.`);
@@ -592,7 +613,7 @@ async function ask(text) {
     // A file may have been added while the optional model was interpreting prose.
     if (readingBatches) btn.textContent = 'Reading pages…';
     await waitForFiles();
-    const { done, warnings } = applyFields(fields);
+    const { done, warnings } = applyFields(fields, { replaceNumbers: isExplicitNumberList(text) });
     const summary = done.length ? `${done.join(' · ')}${source === 'model' ? '  (local AI)' : ''}.` : '';
     toast([summary, ...warnings].filter(Boolean).join(' ') || 'Nothing to change in that request. Try “green ones, 2 pages” or “11, 13, 15–21 odd”.', warnings.length > 0 || !done.length);
   } catch (error) {
@@ -601,7 +622,7 @@ async function ask(text) {
   } finally { btn.disabled = false; btn.textContent = 'Apply'; }
 }
 
-function applyFields(f) {
+function applyFields(f, { replaceNumbers = false } = {}) {
   const done = [];
   const warnings = [];
   if (f.clear) { state.selected.clear(); done.push('cleared'); }
@@ -614,11 +635,12 @@ function applyFields(f) {
       done.push(`${list.length} ${f.highlight_color === 'any' ? 'highlighted' : f.highlight_color} problems`);
     } else warnings.push(`No ${f.highlight_color} marks found.`);
   }
-  if (f.add_numbers) {
+  if (f.add_numbers !== undefined) {
     const nums = parseNumbers(f.add_numbers);
     const { found, missing } = findNumbers(nums);
-    found.forEach(p => state.selected.set(p.id, p));
+    applyNumberSelection(found, { replace: replaceNumbers, empty: !nums.length });
     if (found.length) done.push(`selected ${formatNumbers(found.map(p => p.number))}`);
+    else if (replaceNumbers && !nums.length) done.push('cleared numbered selection');
     if (missing.length) warnings.push(missingNumbersMessage(missing));
   }
   if (f.remove_numbers) {

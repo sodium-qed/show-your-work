@@ -108,9 +108,11 @@ function components(mask, gw, gh) {
 
 /**
  * Colored highlight marks (highlighter strokes, circles, boxes).
+ * A printed diagram fill has an ink outline; a stroke drawn across a diagram
+ * usually does not. Figure/text context lets us distinguish those cases.
  * Returns [{ x0, y0, x1, y1 (page units), color, rgb, area }].
  */
-export function findMarks(img, scale, bodySize = 10) {
+export function findMarks(img, scale, bodySize = 10, { figures = [], words = [] } = {}) {
   const step = Math.max(1, Math.round(scale)); // ~1 page unit per cell
   const unit = step / scale;
   const { mask, gw, gh } = grid(img, step, isMarker, 0.3);
@@ -122,6 +124,62 @@ export function findMarks(img, scale, bodySize = 10) {
   const { comps } = components(m, gw, gh);
   const marks = [];
   const pageArea = gw * gh;
+  const shadedImageFill = (c, variance) => {
+    // A warm, shaded photograph can have one dominant hue without being a
+    // highlighter. Require both a broad fill of its own native image footprint
+    // and substantial tone variation. Thin strokes/circles and uniform marker
+    // rectangles remain marks, including when they overlap a native image.
+    if (variance < 12 * 12) return false;
+    const box = { x0: c.x0 * unit, y0: c.y0 * unit, x1: (c.x1 + 1) * unit, y1: (c.y1 + 1) * unit };
+    return figures.some(f => {
+      if (!f.pdfImage) return false;
+      const fw = f.x1 - f.x0, fh = f.y1 - f.y0, tolerance = 2 * unit;
+      return box.x0 >= f.x0 - tolerance && box.x1 <= f.x1 + tolerance &&
+        box.y0 >= f.y0 - tolerance && box.y1 <= f.y1 + tolerance &&
+        box.x1 - box.x0 >= 0.8 * fw && box.y1 - box.y0 >= 0.8 * fh &&
+        c.area * unit * unit >= 0.5 * fw * fh;
+    });
+  };
+  let outlineInk;
+  const printedFill = c => {
+    const box = { x0: c.x0 * unit, y0: c.y0 * unit, x1: (c.x1 + 1) * unit, y1: (c.y1 + 1) * unit };
+    const area = (box.x1 - box.x0) * (box.y1 - box.y0);
+    if (!figures.some(f => Math.max(0, Math.min(box.x1, f.x1) - Math.max(box.x0, f.x0)) *
+      Math.max(0, Math.min(box.y1, f.y1) - Math.max(box.y0, f.y0)) >= 0.65 * area)) return false;
+    if (!outlineInk) {
+      // Some saturated green marks also meet isInk: only contrasting print can
+      // establish a border. Text inside a highlight is not border evidence.
+      const ink = grid(img, step, (r, g, b) => isInk(r, g, b) && !isMarker(r, g, b)).mask;
+      for (const w of words) {
+        const x0 = Math.max(0, Math.floor((w.x0 - 0.6) / unit)), x1 = Math.min(gw - 1, Math.ceil((w.x1 + 0.6) / unit));
+        const y0 = Math.max(0, Math.floor((w.y0 - 0.6) / unit)), y1 = Math.min(gh - 1, Math.ceil((w.y1 + 0.6) / unit));
+        for (let y = y0; y <= y1; y++) ink.fill(0, y * gw + x0, y * gw + x1 + 1);
+      }
+      outlineInk = dilate(ink, gw, gh, Math.max(1, Math.round(2 / unit)));
+    }
+    // Flood only the exterior. Letter-shaped holes inside a colored stroke must
+    // not inflate its border coverage, including when OCR missed those letters.
+    const lw = c.x1 - c.x0 + 3, lh = c.y1 - c.y0 + 3;
+    const region = new Uint8Array(lw * lh), cells = [];
+    for (const k of c.cells) {
+      const local = ((k / gw | 0) - c.y0 + 1) * lw + k % gw - c.x0 + 1;
+      region[local] = 1; cells.push([k, local]);
+    }
+    const stack = [0]; region[0] = 2;
+    while (stack.length) {
+      const k = stack.pop(), x = k % lw;
+      for (const n of [k - 1, k + 1, k - lw, k + lw]) {
+        if (n < 0 || n >= region.length || region[n] || (n === k - 1 && !x) || (n === k + 1 && x === lw - 1)) continue;
+        region[n] = 2; stack.push(n);
+      }
+    }
+    let border = 0, lined = 0;
+    for (const [k, local] of cells) {
+      if (![local - 1, local + 1, local - lw, local + lw].some(n => region[n] === 2)) continue;
+      border++; if (outlineInk[k]) lined++;
+    }
+    return border > 0 && lined / border >= 0.65;
+  };
   for (const c of comps) {
     const w = (c.x1 - c.x0 + 1) * unit, h = (c.y1 - c.y0 + 1) * unit;
     if (Math.min(w, h) < 0.5 * bodySize || c.area * unit * unit < 0.6 * bodySize * bodySize) continue;
@@ -132,7 +190,7 @@ export function findMarks(img, scale, bodySize = 10) {
     if (raw / c.area < 0.55) continue;
     // Dominant color, measured on marker pixels inside the component.
     const hist = new Float64Array(36);
-    let sr = 0, sg = 0, sb = 0, n = 0;
+    let sr = 0, sg = 0, sb = 0, sr2 = 0, sg2 = 0, sb2 = 0, n = 0;
     const { data, width } = img;
     for (const k of c.cells) {
       const gx = k % gw, gy = (k / gw) | 0;
@@ -141,7 +199,8 @@ export function findMarks(img, scale, bodySize = 10) {
           const i = (y * width + x) * 4, r = data[i], g = data[i + 1], b = data[i + 2];
           if (!isMarker(r, g, b)) continue;
           hist[Math.floor(hsv(r, g, b)[0] / 10) % 36]++;
-          sr += r; sg += g; sb += b; n++;
+          sr += r; sg += g; sb += b;
+          sr2 += r * r; sg2 += g * g; sb2 += b * b; n++;
         }
       }
     }
@@ -153,6 +212,8 @@ export function findMarks(img, scale, bodySize = 10) {
     // Photos and illustrations are multi-colored; highlighters are one color.
     if (uniformity < 0.75) continue;
     if (c.area * unit * unit > 40 * bodySize * bodySize && uniformity < 0.9) continue;
+    if (shadedImageFill(c, Math.max(sr2 / n - (sr / n) ** 2, sg2 / n - (sg / n) ** 2, sb2 / n - (sb / n) ** 2))) continue;
+    if (printedFill(c)) continue;
     // Name the color by the dominant hue (a neighbouring pencil icon must not tint it).
     let pr = 0, pg = 0, pb = 0, pn = 0;
     for (const k of c.cells) {

@@ -7,12 +7,12 @@ Drop in the textbook pages you marked up. Every highlighted problem is pulled ou
 ## Three ways to pick problems
 
 - **Highlights.** Any highlighter color is found automatically: circles around numbers, swipes across a whole problem, ticks in the margin. Each color gets a chip (`Green 23`, `Orange 6`); the most-used color is selected when the file opens.
-- **Numbers.** Type `11, 13, 15–21 odd`, `41–56 even`, or `第23题和第25题`.
+- **Numbers.** Type `11, 13, 15–21 odd`, `41–56 even`, or `第23题和第25题`. A standalone list or range sets the numbered selection. Use `add` or `remove` for an incremental change; unnumbered drawn boxes stay selected.
 - **Draw.** Drag a box around anything the finder missed. The box is trimmed to the ink.
 
 Click any boxed problem on the page to add or remove it.
 
-If a visible problem has no box, choose **Read page visually** above the source page, then enter its number again. This rereads the page image with OCR while preserving selected problems and drawn boxes. A PDF with readable prose but no detected problem numbers is read visually automatically. If the reader download fails, the page stays available and the same button retries it.
+If a visible problem has no box, choose **Read page visually** above the source page, then enter its number again. This rereads the page image with OCR while preserving selected problems and drawn boxes. A PDF with readable prose but missing problem labels can be cross-checked visually automatically. Native PDF text is retained where it is reliable; visual reading adds independently observed missing content. Difficult math scans get a second reading of the exercise-number columns. If the reader download fails, the page stays available and the same button retries it.
 
 ## The request box
 
@@ -24,7 +24,9 @@ becomes *23 green problems · 2 sides · fill the page*. Other examples: `remove
 
 Requests are read instantly by a rule reader. Choose **Use local AI** to add a small language model, [Qwen3.5-0.8B](https://huggingface.co/onnx-community/Qwen3.5-0.8B-Text-ONNX), running in the browser on WebGPU with [Transformers.js](https://huggingface.co/docs/transformers.js). It downloads once (about 470 MB) and is cached. Without WebGPU the rule reader keeps working on its own. The model handles phrasing the rules don't know ("print it on European paper", "put three problems on each line"); every field it proposes is checked against the words in your request, so it can't invent problem numbers or change settings you didn't mention. On the 28-request test set in `tests/agent.eval.mjs`, the rule reader alone gets 20 exactly right, the model alone 12, and the two together all 28.
 
-Explicit lists such as `Problems 43, 45, 57` always use the rule reader, even with Local AI on. Selection waits until the queued pages finish loading. If any requested numbers are missing, the app lists them in a warning and keeps the problems it could select.
+Explicit lists and ranges always use the rule reader, even with Local AI on. For example, `1–50, omit (1, 2, 6, 7, 9, 12, 15, 16, 19, 20, 22, 42), look at all pages` requests exactly 38 exercises across the loaded pages. Source-page scope does not change the number of printed sides. Selection waits for queued page reading. If some requested labels are missing, the app selects the detected subset and lists the missing labels; if none are found, it keeps the previous selection. A chosen manual crop takes precedence over the automatic crop for that exercise. When a file repeats a number in Quick Review and its main exercises, number requests prefer the main exercise.
+
+Local AI interprets the request text. Page reading uses the PDF text layer and neural OCR; the language model does not inspect page images. Layout analysis checks the exercise columns, rows, directions, and figures before creating crops.
 
 ## What the exam looks like
 
@@ -38,9 +40,9 @@ Explicit lists such as `Problems 43, 45, 57` always use the rule reader, even wi
 
 | Step | Where | How |
 | --- | --- | --- |
-| Read the page | `src/textlayer.js`, `src/document.js`, `src/ocr.js` | PDF text layer through PDF.js (with bold / italic / math-font detection). Scans, photos, and PDFs without detected problem numbers use [tesseract.js](https://github.com/naptha/tesseract.js) at 300 dpi with highlighter removed first. A visual reread can recover labels missing from a partial text layer. |
-| Find problems | `src/analyze.js` | Printed problem numbers, aligned plain exercise labels, directions lines (`In Problems 11–18, …`, `Exer. 43–44: …`), headings, and which text belongs to which problem, from word geometry. Works on grids of problems, two-column pages and multi-line word problems. |
-| Find marks and figures | `src/raster.js` | Highlighter strokes: light, single-hue blobs that survive a morphological close/open. Figures: ink not covered by text. Crops grow to include fraction bars and radicals that touch the text. |
+| Read the page | `src/textlayer.js`, `src/document.js`, `src/ocr.js` | PDF text layer through PDF.js (with bold / italic / math-font detection). Scans, photos, and PDFs without detected problem numbers use [tesseract.js](https://github.com/naptha/tesseract.js) at 300 dpi with highlighter removed first. Visual reading cross-checks partial text layers; math scans use targeted number-column rereads. |
+| Find problems | `src/analyze.js` | Printed problem numbers, aligned plain exercise labels, directions lines (`In Problems 11–18, …`, `Exer. 43–44: …`), headings, and which text belongs to which problem, from word geometry. Separates independently staggered columns, retains tall formulas, and follows text around owned figures. Explicit review and exercise headings distinguish repeated numbering. |
+| Find marks and figures | `src/raster.js`, `src/document.js` | Highlighter strokes: light, single-hue blobs that survive a morphological close/open. Printed fills with matching diagram outlines are excluded from highlights. Figures combine non-text ink with native PDF image bounds, preserving pale illustration edges. The bundled JPEG2000 decoder renders embedded images. Crops grow to include fraction bars and radicals that touch the text. |
 | Lay out | `src/layout.js` | Columns, baseline alignment, work aids and fitting to a page count. Pure functions, unit-tested. |
 | Draw the PDF | `src/render-pdf.js` | pdf-lib. Polar and Cartesian grids are vector drawings. |
 | Read requests | `src/rules.js`, `src/agent*.js` | Rule reader, local model in a Web Worker, and the evidence check that combines them. |
@@ -49,7 +51,7 @@ Explicit lists such as `Problems 43, 45, 57` always use the rule reader, even wi
 
 ### Download a release
 
-Download `show-your-work-1.0.2.zip` from [GitHub Releases](https://github.com/sodium-qed/show-your-work/releases/latest), extract the complete folder, then run `npm start` inside it with Node.js 22.3.0 or newer. Open `http://localhost:4173`. The release includes the PDF libraries; no `npm install` is needed. Keep the extracted files together; opening `index.html` directly does not support the app's module loading.
+Download `show-your-work-1.0.3.zip` from [GitHub Releases](https://github.com/sodium-qed/show-your-work/releases/latest), extract the complete folder, then run `npm start` inside it with Node.js 22.3.0 or newer. Open `http://localhost:4173`. The release includes the PDF libraries; no `npm install` is needed. Keep the extracted files together; opening `index.html` directly does not support the app's module loading.
 
 ### Run from source
 
@@ -64,7 +66,7 @@ Any static host works (GitHub Pages: Settings → Pages → Deploy from branch �
 
 ### Build a release
 
-`npm run build` stages the complete runnable app in `dist/show-your-work-1.0.2/`. `npm run release:package` also creates the ZIP plus `dist/SHA256SUMS` (Python 3 required for packaging). Build from the release commit so `version.json` records its source revision. See [the release checklist](docs/RELEASING.md).
+`npm run build` stages the complete runnable app in `dist/show-your-work-1.0.3/`. `npm run release:package` also creates the ZIP plus `dist/SHA256SUMS` (Python 3 required for packaging). Build from the release commit so `version.json` records its source revision. See [the release checklist](docs/RELEASING.md).
 
 ## Tests
 
@@ -73,7 +75,10 @@ npm test                                   # unit tests: numbers, request reader
 npx playwright install chromium            # once
 npm run test:e2e -- samples/sample.pdf 2,3,5,10,12,17,19,22,26,29,34
 npm run test:selection                     # plain/split/glued labels, loading, missing-number feedback, PDF download
+npm run test:ranges                        # exact ranges, exclusions, manual crops, review/main selection
 npm run test:ocr                           # real browser OCR, incomplete text layers, download failure and retry (network required)
+npm run test:scan                          # raster math, exact even selection, complete/exclusive crop pixels
+npm run test:images                        # bundled image decoder, complete pale figures, PDF export
 node tests/ai.e2e.mjs                      # local model in the browser (WebGPU; see the file for a CPU stand-in)
 node tests/agent.eval.mjs rules            # request box scores; see the file for model runs
 ```
