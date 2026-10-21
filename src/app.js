@@ -36,8 +36,25 @@ const allProblems = () => allPages().flatMap(p => p.problems);
 const currentPage = () => state.sources[state.view.source]?.pages[state.view.page];
 
 /* ---------- loading files ---------- */
-async function addFiles(files) {
-  if (!files.length) return;
+let fileQueue = Promise.resolve();
+let readingBatches = 0;
+function addFiles(files) {
+  const batch = [...files];
+  if (!batch.length) return fileQueue;
+  readingBatches++;
+  // Keep uploads in order, and let number requests wait for every queued page.
+  fileQueue = fileQueue.then(() => readFiles(batch)).catch(error => {
+    console.error(error);
+    toast(`Could not finish reading the pages: ${error.message}`, true);
+  }).finally(() => { readingBatches--; });
+  return fileQueue;
+}
+
+async function waitForFiles() {
+  while (readingBatches) await fileQueue;
+}
+
+async function readFiles(files) {
   $('#start').hidden = true; $('#work').hidden = false; $('#ask').hidden = false; $('#ai').hidden = false;
   for (const file of files) {
     try {
@@ -136,16 +153,30 @@ function selectColor(color, { replace = false, toggle = false } = {}) {
 }
 
 /* ---------- numbers ---------- */
-function selectNumbers(text, remove = false) {
+function findNumbers(nums, candidates = allProblems()) {
+  const found = candidates.filter(p => nums.includes(p.number));
+  const missing = nums.filter(n => !found.some(p => p.number === n));
+  return { found, missing };
+}
+
+const missingNumbersMessage = nums => `Not found on the loaded pages: ${formatNumbers(nums)}. Add the page or use Draw to select those problems.`;
+
+async function selectNumbers(text, remove = false) {
   const nums = parseNumbers(text);
   if (!nums.length) { toast('Type problem numbers like 11, 13, 15–21 odd.', true); return; }
-  const found = allProblems().filter(p => nums.includes(p.number));
-  const missing = nums.filter(n => !found.some(p => p.number === n));
-  for (const p of found) remove ? state.selected.delete(p.id) : state.selected.set(p.id, p);
-  changed();
-  let msg = `${remove ? 'Removed' : 'Selected'} ${formatNumbers(found.map(p => p.number)) || 'nothing'}.`;
-  if (missing.length && !remove) msg += ` Not found on these pages: ${formatNumbers(missing)}. Use Draw for those.`;
-  toast(msg, !found.length);
+  const btn = $('#numbers-form button');
+  btn.disabled = true;
+  if (readingBatches) btn.textContent = 'Reading pages…';
+  try {
+    await waitForFiles();
+    const { found, missing } = findNumbers(nums, remove ? [...state.selected.values()] : allProblems());
+    for (const p of found) remove ? state.selected.delete(p.id) : state.selected.set(p.id, p);
+    if (found.length) changed();
+    const messages = [];
+    if (found.length) messages.push(`${remove ? 'Removed' : 'Selected'} ${formatNumbers(found.map(p => p.number))}.`);
+    if (missing.length) messages.push(remove ? `Not selected: ${formatNumbers(missing)}.` : missingNumbersMessage(missing));
+    toast(messages.join(' '), missing.length > 0);
+  } finally { btn.disabled = false; btn.textContent = 'Select'; }
 }
 
 /* ---------- page view ---------- */
@@ -418,14 +449,25 @@ async function ask(text) {
   const btn = $('#ask button');
   btn.disabled = true; btn.textContent = 'Reading…';
   try {
+    if (readingBatches) btn.textContent = 'Reading pages…';
+    await waitForFiles();
+    btn.textContent = 'Reading…';
     const { fields, source } = await interpret(text);
-    const done = applyFields(fields);
-    toast(done.length ? `${done.join(' · ')}${source === 'model' ? '  (local AI)' : ''}` : 'Nothing to change in that request. Try “green ones, 2 pages” or “11, 13, 15–21 odd”.', !done.length);
+    // A file may have been added while the optional model was interpreting prose.
+    if (readingBatches) btn.textContent = 'Reading pages…';
+    await waitForFiles();
+    const { done, warnings } = applyFields(fields);
+    const summary = done.length ? `${done.join(' · ')}${source === 'model' ? '  (local AI)' : ''}.` : '';
+    toast([summary, ...warnings].filter(Boolean).join(' ') || 'Nothing to change in that request. Try “green ones, 2 pages” or “11, 13, 15–21 odd”.', warnings.length > 0 || !done.length);
+  } catch (error) {
+    console.error(error);
+    toast(`Could not apply the request: ${error.message}`, true);
   } finally { btn.disabled = false; btn.textContent = 'Apply'; }
 }
 
 function applyFields(f) {
   const done = [];
+  const warnings = [];
   if (f.clear) { state.selected.clear(); done.push('cleared'); }
   if (f.highlight_color) {
     const list = problemsMarked(f.highlight_color);
@@ -434,19 +476,21 @@ function applyFields(f) {
       list.forEach(p => state.selected.set(p.id, p));
       state.color = f.highlight_color === 'any' ? null : f.highlight_color;
       done.push(`${list.length} ${f.highlight_color === 'any' ? 'highlighted' : f.highlight_color} problems`);
-    } else done.push(`no ${f.highlight_color} marks found`);
+    } else warnings.push(`No ${f.highlight_color} marks found.`);
   }
   if (f.add_numbers) {
     const nums = parseNumbers(f.add_numbers);
-    const found = allProblems().filter(p => nums.includes(p.number));
+    const { found, missing } = findNumbers(nums);
     found.forEach(p => state.selected.set(p.id, p));
-    done.push(`added ${formatNumbers(found.map(p => p.number)) || 'nothing'}`);
+    if (found.length) done.push(`selected ${formatNumbers(found.map(p => p.number))}`);
+    if (missing.length) warnings.push(missingNumbersMessage(missing));
   }
   if (f.remove_numbers) {
     const nums = parseNumbers(f.remove_numbers);
-    let n = 0;
-    for (const p of [...state.selected.values()]) if (nums.includes(p.number)) { state.selected.delete(p.id); n++; }
-    done.push(`removed ${formatNumbers(nums)}`);
+    const { found, missing } = findNumbers(nums, [...state.selected.values()]);
+    for (const p of found) state.selected.delete(p.id);
+    if (found.length) done.push(`removed ${formatNumbers(found.map(p => p.number))}`);
+    if (missing.length) warnings.push(`Not selected: ${formatNumbers(missing)}.`);
   }
   const s = state.settings;
   if (f.pages) { s.pages = Math.min(4, f.pages); done.push(f.pages === 2 ? '2 sides' : `${f.pages} side${f.pages > 1 ? 's' : ''}`); }
@@ -462,7 +506,7 @@ function applyFields(f) {
   }
   remember('settings', s); syncSettings(); refreshColors();
   if (done.length) changed();
-  return done;
+  return { done, warnings };
 }
 
 /* ---------- local AI status ---------- */

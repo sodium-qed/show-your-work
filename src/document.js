@@ -133,7 +133,7 @@ function prefixCut(d) {
   let text = '';
   for (let i = 0; i < words.length - 1; i++) {
     text += (i ? ' ' : '') + words[i].text;
-    if (/^(?:In|For)\s+(?:Problems?|Exercises?|Questions?)\s+\d+(?:\s*[–—−-]\s*\d+|\s+and\s+\d+)?,$/i.test(text.replace(/\s+/g, ' '))) {
+    if (/[:,]$/.test(text) && cleanDirections(text) === '') {
       return { x: words[i + 1].x0 - 0.5, y1: Math.max(...words.map(w => w.y1)) + 1 };
     }
   }

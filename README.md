@@ -22,6 +22,8 @@ becomes *23 green problems · 2 sides · fill the page*. Other examples: `remove
 
 Requests are read instantly by a rule reader. Choose **Use local AI** to add a small language model, [Qwen3.5-0.8B](https://huggingface.co/onnx-community/Qwen3.5-0.8B-Text-ONNX), running in the browser on WebGPU with [Transformers.js](https://huggingface.co/docs/transformers.js). It downloads once (about 470 MB) and is cached. Without WebGPU the rule reader keeps working on its own. The model handles phrasing the rules don't know ("print it on European paper", "put three problems on each line"); every field it proposes is checked against the words in your request, so it can't invent problem numbers or change settings you didn't mention. On the 28-request test set in `tests/agent.eval.mjs`, the rule reader alone gets 20 exactly right, the model alone 12, and the two together all 28.
 
+Explicit lists such as `Problems 43, 45, 57` always use the rule reader, even with Local AI on. Selection waits until the queued pages finish loading. If any requested numbers are missing, the app lists them in a warning and keeps the problems it could select.
+
 ## What the exam looks like
 
 - Problems are the original pixels from the page, so every fraction, radical and figure is exactly as printed. Problem numbers line up on one baseline per row.
@@ -35,7 +37,7 @@ Requests are read instantly by a rule reader. Choose **Use local AI** to add a s
 | Step | Where | How |
 | --- | --- | --- |
 | Read the page | `src/textlayer.js`, `src/ocr.js` | PDF text layer through PDF.js (with bold / italic / math-font detection). Scans and photos go through [tesseract.js](https://github.com/naptha/tesseract.js) at 300 dpi with highlighter removed first. |
-| Find problems | `src/analyze.js` | Problem numbers (`11.`), directions lines (`In Problems 11–18, …`), headings, and which text belongs to which problem, from word geometry. Works on grids of problems, two-column pages and multi-line word problems. |
+| Find problems | `src/analyze.js` | Printed problem numbers, aligned plain exercise labels, directions lines (`In Problems 11–18, …`, `Exer. 43–44: …`), headings, and which text belongs to which problem, from word geometry. Works on grids of problems, two-column pages and multi-line word problems. |
 | Find marks and figures | `src/raster.js` | Highlighter strokes: light, single-hue blobs that survive a morphological close/open. Figures: ink not covered by text. Crops grow to include fraction bars and radicals that touch the text. |
 | Lay out | `src/layout.js` | Columns, baseline alignment, work aids and fitting to a page count. Pure functions, unit-tested. |
 | Draw the PDF | `src/render-pdf.js` | pdf-lib. Polar and Cartesian grids are vector drawings. |
@@ -45,7 +47,7 @@ Requests are read instantly by a rule reader. Choose **Use local AI** to add a s
 
 ### Download a release
 
-Download `show-your-work-1.0.0.zip` from [GitHub Releases](https://github.com/sodium-qed/show-your-work/releases/latest), extract the complete folder, then run `npm start` inside it with Node.js 22.3.0 or newer. Open `http://localhost:4173`. The release includes the PDF libraries; no `npm install` is needed. Keep the extracted files together; opening `index.html` directly does not support the app's module loading.
+Download `show-your-work-1.0.1.zip` from [GitHub Releases](https://github.com/sodium-qed/show-your-work/releases/latest), extract the complete folder, then run `npm start` inside it with Node.js 22.3.0 or newer. Open `http://localhost:4173`. The release includes the PDF libraries; no `npm install` is needed. Keep the extracted files together; opening `index.html` directly does not support the app's module loading.
 
 ### Run from source
 
@@ -60,7 +62,7 @@ Any static host works (GitHub Pages: Settings → Pages → Deploy from branch �
 
 ### Build a release
 
-`npm run build` stages the complete runnable app in `dist/show-your-work-1.0.0/`. `npm run release:package` also creates the ZIP plus `dist/SHA256SUMS` (Python 3 required for packaging). Build from the release commit so `version.json` records its source revision. See [the release checklist](docs/RELEASING.md).
+`npm run build` stages the complete runnable app in `dist/show-your-work-1.0.1/`. `npm run release:package` also creates the ZIP plus `dist/SHA256SUMS` (Python 3 required for packaging). Build from the release commit so `version.json` records its source revision. See [the release checklist](docs/RELEASING.md).
 
 ## Tests
 
@@ -68,6 +70,7 @@ Any static host works (GitHub Pages: Settings → Pages → Deploy from branch �
 npm test                                   # unit tests: numbers, request reader, page analysis, layout
 npx playwright install chromium            # once
 npm run test:e2e -- samples/sample.pdf 2,3,5,10,12,17,19,22,26,29,34
+npm run test:selection                     # plain/split/glued labels, loading, missing-number feedback, PDF download
 node tests/ai.e2e.mjs                      # local model in the browser (WebGPU; see the file for a CPU stand-in)
 node tests/agent.eval.mjs rules            # request box scores; see the file for model runs
 ```
@@ -76,7 +79,7 @@ node tests/agent.eval.mjs rules            # request box scores; see the file fo
 
 ## Limits
 
-- Problems are found from their printed numbers (`12.`, `12)`). Lettered problems or unnumbered prompts need **Draw**.
+- Problems are found from their printed numbers (`12.`, `12)`) or plain labels supported by aligned numbering and exercise directions. Ambiguous numbers, lettered problems, or unnumbered prompts may need **Draw**.
 - Photos should be reasonably flat and lit; strongly skewed pages may confuse OCR.
 - Pages over 80 per file are not read.
 

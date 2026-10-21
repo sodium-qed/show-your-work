@@ -5,6 +5,9 @@
 // A figure: { x0, y0, x1, y1 } — non-text ink found in the raster.
 
 const DASH = '[–—−-]';
+const EXERCISES = '(?:Problems?|Exercises?|Questions?|Exer\\.?|Exs?\\.)';
+const DIRECTION_START = new RegExp(`^(?:(?:In|For)\\s+)?${EXERCISES}\\s*\\d`, 'i');
+const DIRECTION_PREFIX = new RegExp(`^(?:(?:In|For)\\s+)?${EXERCISES}\\s*\\d+(?:\\s*(?:${DASH}|and|through|to)\\s*\\d+)?\\s*[:,]?\\s*`, 'i');
 const ANCHOR = /^(\d{1,3})[.)]$/;
 const OCR_ANCHOR = /^(\d{1,3})[.,:)]$/;
 const VERB = /^(match|plot|find|write|solve|graph|sketch|simplify|evaluate|use|determine|convert|express|identify|show|verify|factor|compute|calculate|explain|answer|fill|complete|state|list|describe|decide|tell|give|draw|name|prove|estimate|approximate|rewrite|translate|classify)\b/i;
@@ -52,11 +55,11 @@ export function segments(words, bodySize) {
 /** Problem ranges named by a directions sentence ("In Problems 11–18, ..."). */
 export function directionRange(text) {
   const t = text.replace(/\s+/g, ' ');
-  let m = t.match(new RegExp(`(?:Problems?|Exercises?|Questions?)\\s+(\\d+)\\s*${DASH}\\s*(\\d+)`, 'i'));
+  let m = t.match(new RegExp(`${EXERCISES}\\s*(\\d+)\\s*${DASH}\\s*(\\d+)`, 'i'));
   if (m) return { from: +m[1], to: +m[2] };
-  m = t.match(/(?:Problems?|Exercises?|Questions?)\s+(\d+)\s+(?:and|through|to)\s+(\d+)/i);
+  m = t.match(new RegExp(`${EXERCISES}\\s*(\\d+)\\s+(?:and|through|to)\\s+(\\d+)`, 'i'));
   if (m) return { from: +m[1], to: +m[2] };
-  m = t.match(/(?:Problems?|Exercises?|Questions?)\s+(\d+)\b/i);
+  m = t.match(new RegExp(`${EXERCISES}\\s*(\\d+)\\b`, 'i'));
   if (m) return { from: +m[1], to: +m[1] };
   return null;
 }
@@ -64,14 +67,39 @@ export function directionRange(text) {
 /** Strip "In Problems 11–18," and capitalize, for printing the directions as text. */
 export function cleanDirections(text) {
   let t = text.replace(/\s+/g, ' ').trim();
-  t = t.replace(new RegExp(`^(?:In|For)\\s+(?:Problems?|Exercises?|Questions?)\\s+\\d+(?:\\s*(?:${DASH}|and|through|to)\\s*\\d+)?\\s*,?\\s*`, 'i'), '');
+  t = t.replace(DIRECTION_PREFIX, '');
   return t ? t[0].toUpperCase() + t.slice(1) : t;
 }
 
 function isDirections(seg, width, bodySize) {
-  if (/^(?:In|For)\s+(?:Problems?|Exercises?|Questions?)\s+\d/i.test(seg.text)) return true;
+  if (DIRECTION_START.test(seg.text)) return true;
   // Italic imperative sentences spanning a good part of the page ("Match each point...").
   return seg.italic && VERB.test(seg.text) && seg.x1 - seg.x0 > 0.3 * width && seg.size <= bodySize * 1.15;
+}
+
+// PDF producers may put a label's digits and punctuation in different font runs,
+// or join a label to its title. Normalize those forms without splitting decimals.
+function numberLabelWords(words) {
+  const punctuation = words.filter(w => /^[.)]$/.test(w.text));
+  const consumed = new Set();
+  const joined = new Map();
+  for (const w of words) {
+    if (!/^\d{1,3}$/.test(w.text)) continue;
+    const p = punctuation.find(p => !consumed.has(p) && p.x0 >= w.x1 - 0.1 * w.size && p.x0 - w.x1 <= 0.35 * w.size && Math.abs(p.base - w.base) <= 0.25 * w.size);
+    if (!p) continue;
+    // A tightly adjoining digit after a period is a decimal, not a label.
+    if (p.text === '.' && words.some(n => /^\d/.test(n.text) && n !== w && n.x0 >= p.x1 - 0.1 * w.size && n.x0 - p.x1 <= 0.35 * w.size && Math.abs(n.base - w.base) <= 0.25 * w.size)) continue;
+    consumed.add(p);
+    joined.set(w, { ...w, text: w.text + p.text, x1: p.x1, bold: w.bold || p.bold });
+  }
+  return words.flatMap(original => {
+    if (consumed.has(original)) return [];
+    const w = joined.get(original) || original;
+    const m = w.text.match(/^(\d{1,3}[.)])(?=[A-Za-z]{2})/);
+    if (!m) return [w];
+    const cut = w.x0 + (w.x1 - w.x0) * m[1].length / w.text.length;
+    return [{ ...w, text: m[1], x1: cut }, { ...w, text: w.text.slice(m[1].length), x0: cut }];
+  });
 }
 
 /**
@@ -80,7 +108,7 @@ function isDirections(seg, width, bodySize) {
  * anchors: [{ number, word, box, crop, figure }]  box = owned text; crop = box grown by ink later.
  */
 export function analyzePage({ words, width, height, figures: rawFigures = [], ocr = false }) {
-  words = words.filter(w => w.text && w.text.trim() && w.x1 > w.x0);
+  words = numberLabelWords(words.filter(w => w.text && w.text.trim() && w.x1 > w.x0));
   const bodySize = median(words.filter(w => w.text.length > 1).map(w => w.size)) || 10;
   const segs = segments(words, bodySize);
 
@@ -94,13 +122,43 @@ export function analyzePage({ words, width, height, figures: rawFigures = [], oc
   // A text word labelled inside a figure doesn't start problems or lines of prose.
   const free = w => !figureOf.has(w);
 
+  // Bare exercise numbers need independent layout evidence. Do not make the
+  // punctuation optional in ANCHOR: that would turn equation constants into labels.
+  const potential = [];
+  for (const seg of segs) {
+    seg.words.forEach((w, j) => {
+      const m = w.text.match(ocr ? OCR_ANCHOR : ANCHOR);
+      const bare = !m && /^[1-9]\d{0,2}$/.test(w.text);
+      if ((!m && !bare) || !free(w)) return;
+      const prev = seg.words[j - 1];
+      const leads = j === 0 || (prev && w.x0 - prev.x1 > 1.2 * bodySize);
+      // Bare labels with a wide gutter can use another segment; they still have to
+      // pass the alignment/sequence checks below. Isolated math such as "5)" cannot.
+      const next = seg.words[j + 1] || (bare && words.filter(n => n !== w && free(n) && n.x0 >= w.x1 && n.x0 - w.x1 <= 4 * bodySize && Math.abs(n.base - w.base) <= 0.5 * bodySize).sort((a, b) => a.x0 - b.x0)[0]);
+      const followed = !!next && next.x0 - w.x1 <= 4 * bodySize;
+      if (!followed && (!ocr || bare)) return;
+      if (!(w.bold || leads)) return;
+      if (bare && (j !== 0 || w.math || next.x0 - w.x1 < 0.25 * bodySize || /^[+−–=×÷<>≤≥*/^.,)\]}-]/.test(next.text))) return;
+      potential.push({ number: m ? +m[1] : +w.text, word: w, bold: !!w.bold, bare, followed, x0: w.x0, y0: w.y0, x1: w.x1, y1: w.y1, base: w.base, size: w.size });
+    });
+  }
+  const ranges = segs.filter(s => DIRECTION_START.test(s.text)).map(s => ({ ...s, range: directionRange(s.text) })).filter(s => s.range);
+  const bareWords = new Set(potential.filter(c => {
+    if (!c.bare) return false;
+    const peers = potential.filter(o => o !== c && o.number !== c.number && Math.abs(o.x0 - c.x0) < 0.8 * bodySize && Math.abs(o.base - c.base) > 0.6 * bodySize);
+    const sequence = peers.filter(o => Math.abs(o.number - c.number) <= 2 && (o.number - c.number) * (o.base - c.base) > 0);
+    if (sequence.length && (peers.length >= 2 || sequence.some(o => !o.bare))) return true;
+    // A two-exercise section can supply the same evidence through its named range.
+    return ranges.some(s => c.number >= s.range.from && c.number <= s.range.to && c.base > s.base && c.x0 >= s.x0 - bodySize && potential.some(o => o !== c && o.number !== c.number && o.number >= s.range.from && o.number <= s.range.to && o.base > s.base && o.x0 >= s.x0 - bodySize));
+  }).map(c => c.word));
+  const startsProblem = seg => (ocr ? OCR_ANCHOR : ANCHOR).test(seg.words[0].text) || bareWords.has(seg.words[0]);
+
   const directions = [];
   const headings = [];
   const used = new Set();
   for (const [i, seg] of segs.entries()) {
     if (used.has(seg) || !seg.words.some(free)) continue;
-    const first = seg.words[0].text;
-    const anchorLed = (ocr ? OCR_ANCHOR : ANCHOR).test(first);
+    const anchorLed = startsProblem(seg);
     if (!anchorLed && isDirections(seg, width, bodySize)) {
       const block = { segs: [seg], ...union(null, seg) };
       // Continuation lines: directly below, aligned, not starting a problem. A continuation
@@ -110,14 +168,14 @@ export function analyzePage({ words, width, height, figures: rawFigures = [], oc
         if (used.has(next) || block.segs.includes(next)) continue;
         if (next.y0 - last.y1 > 1.1 * bodySize) break;
         if (Math.abs(next.base - last.base) < 0.35 * bodySize) {
-          if (last !== seg && next.x0 > block.x0 && next.x1 < Math.max(block.x1, width - 0.05 * width) && next.words.some(free) && !(ocr ? OCR_ANCHOR : ANCHOR).test(next.words[0].text)) {
+          if (last !== seg && next.x0 > block.x0 && next.x1 < Math.max(block.x1, width - 0.05 * width) && next.words.some(free) && !startsProblem(next)) {
             block.segs.push(next); used.add(next); Object.assign(block, union(block, next));
           }
           continue;
         }
         if (next.y0 < last.y1 - 0.3 * bodySize) continue;
         if (Math.abs(next.x0 - seg.x0) > 2.5 * bodySize) continue;
-        if ((ocr ? OCR_ANCHOR : ANCHOR).test(next.words[0].text)) break;
+        if (startsProblem(next)) break;
         if (!next.words.some(free)) break;
         block.segs.push(next); used.add(next);
         Object.assign(block, union(block, next));
@@ -140,20 +198,7 @@ export function analyzePage({ words, width, height, figures: rawFigures = [], oc
   const inDirections = w => directions.some(d => d.segs.some(s => s.words.includes(w)));
 
   // Problem-number anchors.
-  const candidates = [];
-  for (const seg of segs) {
-    seg.words.forEach((w, j) => {
-      const m = w.text.match(ocr ? OCR_ANCHOR : ANCHOR);
-      if (!m || !free(w) || inDirections(w)) return;
-      const next = seg.words[j + 1];
-      const prev = seg.words[j - 1];
-      const leads = j === 0 || (prev && w.x0 - prev.x1 > 1.2 * bodySize);
-      const followed = next && next.x0 - w.x1 <= 4 * bodySize;
-      if (!followed && !ocr) return;
-      if (!(w.bold || leads)) return;
-      candidates.push({ number: +m[1], word: w, bold: !!w.bold, followed, x0: w.x0, y0: w.y0, x1: w.x1, y1: w.y1, base: w.base, size: w.size });
-    });
-  }
+  const candidates = potential.filter(c => (!c.bare || bareWords.has(c.word)) && !inDirections(c.word));
   // OCR can lose the text after a number; keep such a number only if it lines up with others.
   for (let i = candidates.length - 1; i >= 0; i--) {
     const c = candidates[i];
@@ -163,7 +208,7 @@ export function analyzePage({ words, width, height, figures: rawFigures = [], oc
   }
   // If most candidates are bold, the non-bold ones are list items inside problems.
   const boldShare = candidates.filter(c => c.bold).length / (candidates.length || 1);
-  let anchors = boldShare > 0.6 ? candidates.filter(c => c.bold) : candidates;
+  let anchors = boldShare > 0.6 ? candidates.filter(c => c.bold || c.bare) : candidates;
   // Keep one anchor per number: prefer bold, then a left edge shared with other anchors.
   const byNumber = new Map();
   for (const a of anchors) {
