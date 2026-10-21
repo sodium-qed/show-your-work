@@ -38,20 +38,45 @@ const currentPage = () => state.sources[state.view.source]?.pages[state.view.pag
 /* ---------- loading files ---------- */
 let fileQueue = Promise.resolve();
 let readingBatches = 0;
-function addFiles(files) {
-  const batch = [...files];
-  if (!batch.length) return fileQueue;
+let pageProgress = null;
+const visualReads = new Set();
+
+function queueRead(read) {
   readingBatches++;
-  // Keep uploads in order, and let number requests wait for every queued page.
-  fileQueue = fileQueue.then(() => readFiles(batch)).catch(error => {
+  // Uploads and visual retries share the reader; number requests wait for both.
+  fileQueue = fileQueue.then(read).catch(error => {
     console.error(error);
     toast(`Could not finish reading the pages: ${error.message}`, true);
-  }).finally(() => { readingBatches--; });
+  }).finally(() => { readingBatches--; syncPageReading(); });
   return fileQueue;
+}
+
+function addFiles(files) {
+  const batch = [...files];
+  return batch.length ? queueRead(() => readFiles(batch)) : fileQueue;
 }
 
 async function waitForFiles() {
   while (readingBatches) await fileQueue;
+}
+
+function syncPageReading() {
+  const source = state.sources[state.view.source];
+  const page = currentPage();
+  const pending = source && visualReads.has(`${source.id}:${state.view.page}`);
+  const active = pageProgress?.source === source && pageProgress?.index === state.view.page;
+  const status = $('#page-status');
+  status.textContent = active ? pageProgress.message : pending ? 'Waiting for the page reader…' :
+    page?.readWarning || page?.readNotice || (pageProgress ? `Page ${pageProgress.index + 1}: ${pageProgress.message}` : '');
+  status.classList.toggle('bad', !active && !pending && !!page?.readWarning);
+  const btn = $('#read-page');
+  btn.disabled = !page || !!pending;
+  btn.textContent = pending ? 'Reading page…' : 'Read page visually';
+}
+
+function readingPage(source, index, message) {
+  pageProgress = { source, index, message };
+  syncPageReading();
 }
 
 async function readFiles(files) {
@@ -63,8 +88,8 @@ async function readFiles(files) {
       const sIndex = state.sources.length - 1;
       if (state.sources.length === 1 || state.view.source == null) state.view = { source: sIndex, page: 0 };
       for (let i = 0; i < Math.min(source.pageCount, 80); i++) {
-        $('#page-status').textContent = `${source.name}: page ${i + 1} of ${source.pageCount}`;
-        await preparePage(source, i, msg => { $('#page-status').textContent = `Page ${i + 1}: ${msg}`; });
+        readingPage(source, i, `Reading page ${i + 1} of ${source.pageCount}…`);
+        await preparePage(source, i, msg => readingPage(source, i, msg));
         if (sIndex === state.view.source && i === state.view.page) await showPage();
         refreshColors();
       }
@@ -74,9 +99,112 @@ async function readFiles(files) {
       toast(`${file.name}: ${error.message || 'could not be opened.'}`, true);
     }
   }
-  $('#page-status').textContent = '';
+  pageProgress = null;
   await showPage();
   autoSelect();
+}
+
+function readPageVisually() {
+  const source = state.sources[state.view.source];
+  const index = state.view.page;
+  if (!source?.pages[index]) return Promise.resolve();
+  const key = `${source.id}:${index}`;
+  if (visualReads.has(key)) return fileQueue;
+  visualReads.add(key);
+  syncPageReading();
+  return queueRead(async () => {
+    const previous = source.pages[index];
+    try {
+      const page = await preparePage(source, index, msg => readingPage(source, index, msg), { forceOcr: true });
+      if (page !== previous) {
+        refreshReadPage(previous, page);
+        if (state.sources[state.view.source] === source && state.view.page === index && state.mode === 'draw' && page.problems.length) setMode('numbers');
+      }
+      refreshColors();
+      await showPage();
+      toast(`Page ${index + 1}: ${page.readWarning || page.readNotice || `Found ${page.problems.length} numbered problems.`}`, !!page.readWarning);
+    } catch (error) {
+      console.error(error);
+      previous.readWarning = `Could not read this page visually: ${error.message}. You can retry or use Draw.`;
+      previous.readNotice = '';
+      toast(previous.readWarning, true);
+    } finally {
+      visualReads.delete(key);
+      pageProgress = null;
+      syncPageReading();
+    }
+  });
+}
+
+/** Refresh a reread page without losing chosen problems, manual boxes, or clear formatting preferences. */
+function refreshReadPage(previous, page) {
+  const prefix = `${page.source.id}:${page.index}:`;
+  const replacements = new Map(page.problems.map(p => [p.id, p]));
+  const moves = new Map();
+  const move = (from, to) => {
+    if (!moves.has(from)) moves.set(from, new Set());
+    moves.get(from).add(to);
+  };
+  const rangedGroup = (number, index) => number == null ? null : page.source.pages.slice(0, index + 1)
+    .filter(Boolean).flatMap(p => p.directions).reverse()
+    .find(d => d.range && number >= d.range.from && number <= d.range.to)?.key;
+  for (const p of page.problems) {
+    if (p.group.endsWith(':none')) p.group = rangedGroup(p.number, p.page) || p.group;
+  }
+  for (const p of previous.problems) {
+    const replacement = replacements.get(p.id);
+    if (replacement) move(p.group, replacement.group);
+  }
+  for (const old of previous.directions) {
+    const matches = page.directions.filter(d => old.range && d.range && old.range.from === d.range.from && old.range.to === d.range.to);
+    if (matches.length === 1) move(old.key, matches[0].key);
+  }
+  const remap = p => {
+    const replacement = p.page === page.index && page.problems.find(n => n.number === p.number);
+    if (replacement && !replacement.group.endsWith(':none')) return replacement.group;
+    const ranged = rangedGroup(p.number, p.page);
+    if (ranged) return ranged;
+    const targets = moves.get(p.group);
+    if (targets?.size === 1) {
+      const target = [...targets][0];
+      if (!p.manual || !target.endsWith(':none')) return target;
+    }
+    return `${p.sourceId}:${p.page}:${p.manual ? 'manual' : 'none'}`;
+  };
+  // Later pages can inherit this page's directions, including previously deselected problems.
+  for (const p of allProblems()) {
+    if (p.sourceId !== page.source.id || p.page === page.index || !p.group.startsWith(prefix)) continue;
+    const old = p.group;
+    p.group = remap(p);
+    move(old, p.group);
+  }
+  for (const [id, p] of state.selected) {
+    if (p.sourceId !== page.source.id) continue;
+    if (!p.manual && p.page === page.index) {
+      if (replacements.has(id)) state.selected.set(id, replacements.get(id));
+    } else if (p.manual && (p.page === page.index || p.group.startsWith(prefix))) {
+      const old = p.group;
+      p.group = remap(p);
+      move(old, p.group);
+    }
+  }
+  // Copy a preference only when the old group has one destination and merged groups agree.
+  const oldAids = new Map(state.aids);
+  for (const key of state.aids.keys()) if (key.startsWith(prefix)) state.aids.delete(key);
+  if (!moves.has(`${prefix}manual`)) move(`${prefix}manual`, `${prefix}manual`);
+  const preferences = new Map();
+  for (const [from, targets] of moves) {
+    if (targets.size !== 1 || !oldAids.has(from)) continue;
+    const target = [...targets][0];
+    if (!preferences.has(target)) preferences.set(target, []);
+    preferences.get(target).push(oldAids.get(from));
+  }
+  for (const [target, aids] of preferences) {
+    if (state.aids.has(target)) aids.push(state.aids.get(target));
+    if (aids.every(aid => JSON.stringify(aid) === JSON.stringify(aids[0]))) state.aids.set(target, aids[0]);
+  }
+  imageCache.clear();
+  changed();
 }
 
 /** On first load: if the pages carry highlights, select them straight away. */
@@ -159,7 +287,7 @@ function findNumbers(nums, candidates = allProblems()) {
   return { found, missing };
 }
 
-const missingNumbersMessage = nums => `Not found on the loaded pages: ${formatNumbers(nums)}. Add the page or use Draw to select those problems.`;
+const missingNumbersMessage = nums => `Not detected on the loaded pages: ${formatNumbers(nums)}. On the page containing them, choose “Read page visually” or use Draw.`;
 
 async function selectNumbers(text, remove = false) {
   const nums = parseNumbers(text);
@@ -188,8 +316,13 @@ async function showPage() {
   const flat = state.sources.slice(0, state.view.source).reduce((a, s) => a + s.pageCount, 0) + state.view.page;
   $('#page-label').textContent = `${state.sources.length > 1 ? source.name + ', ' : ''}page ${state.view.page + 1} of ${source.pageCount}`;
   $('#prev').disabled = flat === 0; $('#next').disabled = flat >= total - 1;
-  if (!page) return;
+  syncPageReading();
   const c = $('#page');
+  if (!page) {
+    c.getContext('2d').clearRect(0, 0, c.width, c.height);
+    $('#overlay').replaceChildren();
+    return;
+  }
   c.width = page.canvas.width; c.height = page.canvas.height;
   c.getContext('2d').drawImage(page.canvas, 0, 0);
   $('#surface').style.maxWidth = `${Math.min(1100, page.width * 1.6)}px`;
@@ -365,6 +498,7 @@ async function rebuild() {
       for (const p of g.problems) {
         const ref = `p:${p.id}:${p.rect.x0.toFixed(1)},${p.rect.y0.toFixed(1)},${p.rect.x1.toFixed(1)},${p.rect.y1.toFixed(1)}`;
         const img = await imageFor(ref, () => cropImage(pageOf(p), p.rect, { parts: p.parts }));
+        if (revision !== state.revision) return;
         images.set(ref, { bytes: img.bytes, type: 'png' });
         problems.push({ id: p.id, w: img.w, h: img.h, ref, extent: p.extent, baseline: p.baseline });
       }
@@ -375,12 +509,14 @@ async function rebuild() {
         else {
           const ref = `d:${dir.key}`;
           const img = await imageFor(ref, () => directionsImage(page, dir));
+          if (revision !== state.revision) return;
           images.set(ref, { bytes: img.bytes, type: 'png' });
           directions = { image: { w: img.w, h: img.h, ref } };
         }
         if (dir.figure) {
           const ref = `f:${dir.key}`;
           const img = await imageFor(ref, () => cropImage(page, dir.figure));
+          if (revision !== state.revision) return;
           images.set(ref, { bytes: img.bytes, type: 'png' });
           figure = { w: img.w, h: img.h, ref };
         }
@@ -529,6 +665,7 @@ function init() {
   syncSettings(); bindSettings(); bindAgent(); setupDrawing();
   $('#choose').onclick = () => $('#file').click();
   $('#add-files').onclick = () => $('#file').click();
+  $('#read-page').onclick = readPageVisually;
   $('#file').onchange = e => { addFiles([...e.target.files]); e.target.value = ''; };
   $('#sample').onclick = async () => {
     const res = await fetch(new URL('../samples/sample.pdf', import.meta.url));
@@ -573,6 +710,6 @@ function init() {
     document.body.append(frame);
   };
   window.addEventListener('resize', () => { clearTimeout(timer); timer = setTimeout(() => state.pdf && showPreview(state.pdf), 250); });
-  window.__syw = { state, addFiles, ask, selectNumbers, selectColor, rebuild: () => { state.revision++; return rebuild(); } };
+  window.__syw = { state, addFiles, ask, selectNumbers, selectColor, readPageVisually, rebuild: () => { state.revision++; return rebuild(); } };
 }
 init();

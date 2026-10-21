@@ -68,30 +68,64 @@ async function renderPage(source, index) {
 
 const median = v => { const s = [...v].sort((a, b) => a - b); return s.length ? s[Math.floor(s.length / 2)] : 0; };
 
+function analyzeWords(words, r, img, ocr) {
+  const bodySize = median(words.filter(w => w.text.length > 1).map(w => w.size)) || 10;
+  // A new reader needs new text masks: stale figures can cover the recovered labels.
+  const figures = findFigures(img, r.scale, words, bodySize);
+  return analyzePage({ words, width: r.width, height: r.height, figures, ocr });
+}
+
 /**
  * Prepare one page: render, read words, analyze. Cached on the source.
  * @returns page model { index, width, height, scale, canvas, ocr, problems[], marks[], directions[] }
  */
-export async function preparePage(source, index, onStatus = () => {}) {
-  if (source.pages[index]) return source.pages[index];
-  onStatus('Rendering page…');
-  const r = await renderPage(source, index);
-  const img = r.canvas.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, r.canvas.width, r.canvas.height);
-  let words = r.page ? await pageWords(r.page) : [];
-  let ocr = false;
-  if (words.filter(w => /[a-z]{2}/i.test(w.text)).length < 12) {
-    onStatus('Reading the page (OCR)…');
-    words = await ocrWords(r.canvas, r.scale, p => onStatus(`Reading the page (OCR) ${Math.round(p * 100)}%`));
-    ocr = true;
+export async function preparePage(source, index, onStatus = () => {}, { forceOcr = false } = {}) {
+  const previous = source.pages[index];
+  if (previous && !forceOcr) return previous;
+  if (!previous) onStatus('Rendering page…');
+  const r = previous || await renderPage(source, index);
+  const img = previous?.img || r.canvas.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, r.canvas.width, r.canvas.height);
+  let words = previous?.words || [];
+  if (!previous && r.page) {
+    try { words = await pageWords(r.page); }
+    catch { /* A damaged text layer can still be read from the rendered page below. */ }
+  }
+  let ocr = previous?.ocr || false;
+  let analysis = previous?.analysis || analyzeWords(words, r, img, ocr);
+  let ocrAttempted = previous?.ocrAttempted || false;
+  let readWarning = '', readNotice = '';
+  const sparse = words.filter(w => /[a-z]{2}/i.test(w.text)).length < 12;
+  // Readable prose does not guarantee that a PDF exposes its exercise-number glyphs.
+  if (forceOcr || sparse || !analysis.anchors.length) {
+    ocrAttempted = true;
+    onStatus('Reading the page visually (OCR)…');
+    try {
+      const visualWords = await ocrWords(r.canvas, r.scale, p => onStatus(`Reading the page visually (OCR) ${Math.round(p * 100)}%`));
+      const visual = analyzeWords(visualWords, r, img, true);
+      const found = new Set(visual.anchors.map(a => a.number));
+      const preserves = analysis.anchors.every(a => found.has(a.number));
+      const improves = preserves && visual.anchors.length > analysis.anchors.length;
+      const readsSparseText = !analysis.anchors.length && sparse && visualWords.length > words.length;
+      if (improves || readsSparseText) {
+        words = visualWords; analysis = visual; ocr = true;
+        readNotice = analysis.anchors.length ? `Visual reading found ${analysis.anchors.length} numbered problems.` : 'No numbered problems detected after visual reading. Draw a box to select a problem.';
+      } else {
+        readNotice = analysis.anchors.length ? 'Visual reading found no safe improvement. Existing problem boxes were kept.' : 'No numbered problems detected after visual reading. Draw a box to select a problem.';
+      }
+    } catch (error) {
+      // Keep the rendered page and continue the PDF, even if the OCR download fails.
+      readWarning = `Visual reading failed: ${error.message || 'the text reader is unavailable.'} Use Read page visually to retry, or Draw to select a problem.`;
+    }
+  }
+  if (previous && analysis === previous.analysis) {
+    Object.assign(previous, { ocrAttempted, readWarning, readNotice });
+    return previous;
   }
   onStatus('Finding problems…');
-  const bodySize = median(words.filter(w => w.text.length > 1).map(w => w.size)) || 10;
-  const figures = findFigures(img, r.scale, words, bodySize);
-  const analysis = analyzePage({ words, width: r.width, height: r.height, figures, ocr });
   const marks = findMarks(img, r.scale, analysis.bodySize);
   for (const m of marks) m.anchor = anchorForMark(m, analysis.anchors, analysis.bodySize)?.number ?? null;
 
-  const model = { source, index, width: r.width, height: r.height, scale: r.scale, canvas: r.canvas, img, ocr, words, analysis, marks, problems: [], directions: [] };
+  const model = { source, index, width: r.width, height: r.height, scale: r.scale, canvas: r.canvas, img, ocr, ocrAttempted, readWarning, readNotice, words, analysis, marks, problems: [], directions: [] };
   const bs = analysis.bodySize;
   analysis.directions.forEach((d, di) => {
     const key = `${source.id}:${index}:d${di}`;

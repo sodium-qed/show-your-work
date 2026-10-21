@@ -55,8 +55,9 @@ Serve the app over HTTP or HTTPS; opening index.html by double-click does not su
 - Preserve printed math and figures while removing highlighter from the output.
 - Choose page count, columns, paper size and writing space, then download or print a PDF.
 - Use the bundled sample PDF to try the app.
+- Use Read page visually above a source page to recover missing number labels or retry a failed text-reader download, then enter the requested numbers again.
 
-PDF libraries, fonts, character maps and their license files are bundled. Textbook files are processed locally in the browser. OCR for scans/photos and the optional local AI require external downloads. Local AI additionally requires WebGPU; the rule-based request reader works without it. This is not a fully offline package.
+PDF libraries, fonts, character maps and their license files are bundled. Textbook files are processed locally in the browser. OCR for scans, photos, or incomplete PDF text layers and the optional local AI require external downloads. Local AI additionally requires WebGPU; the rule-based request reader works without it. This is not a fully offline package.
 
 Source and development instructions: https://github.com/sodium-qed/show-your-work
 

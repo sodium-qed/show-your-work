@@ -39,8 +39,10 @@ export async function pageWords(page) {
     const str = item.str;
     if (!str || !str.trim()) continue;
     const [a, b, c, d, e, f] = item.transform;
-    if (Math.abs(b) > 0.01 * Math.abs(a) || Math.abs(c) > 0.01 * Math.abs(d)) continue; // rotated text
-    const size = Math.hypot(c, d) || item.height || 10;
+    // b tilts the baseline. c can instead shear upright glyphs (synthetic italics),
+    // so rejecting c would silently discard otherwise horizontal exercise labels.
+    if (Math.abs(b) > 0.01 * Math.abs(a)) continue;
+    const size = Math.abs(d) || Math.abs(item.height) || 10;
     const [x, base] = viewport.convertToViewportPoint(e, f);
     const width = item.width;
     const name = fonts.get(item.fontName) || content.styles[item.fontName]?.fontFamily || '';

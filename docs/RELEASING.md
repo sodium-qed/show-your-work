@@ -9,9 +9,10 @@ Requirements: Node.js 22.3.0 or newer, npm, Python 3, Git.
    ```bash
    npm run test:e2e -- samples/sample.pdf 2,3,5,10,12,17,19,22,26,29,34
    npm run test:selection
+   npm run test:ocr
    ```
 
-   Confirm the selections match, requests wait for unfinished uploads, missing-number warnings appear, a PDF downloads successfully, its pages open, plus no application errors appear. The selection test generates its own two-page fixtures for plain exercise numbers and fragmented PDF text labels.
+   Confirm the selections match, requests wait for unfinished uploads, missing-number warnings appear, a PDF downloads successfully, its pages open, plus no application errors appear. The selection test generates its own two-page fixtures for plain exercise numbers and fragmented PDF text labels. The OCR test requires network access and uses real browser OCR on generated PDFs with rasterized number labels and readable prose. It checks complete text/figure crops, continued reading after a failed download, recovery in the same tab, and preservation of selected problems, manual boxes, and work-area choices.
 4. Commit the release changes. Run `npm run release:package` from that commit. The generated `version.json` records the commit. The ZIP includes the entry point, source modules, PDF libraries, dependency licenses, sample PDF, local server, plus a minimal package manifest. Build outputs stay outside Git.
 5. Extract the ZIP into a fresh directory. Run `npm start` there without installing dependencies; load the sample, then download the PDF.
 6. Push the release commit to `main`. Create the matching tag at that exact commit. Publish a GitHub release with the ZIP, `SHA256SUMS`, release notes, test results, plus relevant limitations.

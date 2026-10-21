@@ -107,13 +107,13 @@ try {
     assert.deepEqual(await selected(page), [42, 45, 54, 57], `${name}: partial request adds only found problems`);
     let feedback = await page.locator('#toast').textContent();
     assert.match(feedback, /99/);
-    assert.match(feedback, /not found|could not find|missing/i);
+    assert.match(feedback, /not found|could not find|missing|not detected/i);
     assert.equal(await page.locator('#toast').evaluate(t => t.classList.contains('bad')), true, 'partial selection is reported as a warning');
     await ask(page, '99');
     assert.deepEqual(await selected(page), [42, 45, 54, 57], `${name}: missing request preserves existing selection`);
     feedback = await page.locator('#toast').textContent();
     assert.match(feedback, /99/);
-    assert.match(feedback, /not found|could not find|missing/i);
+    assert.match(feedback, /not found|could not find|missing|not detected/i);
     assert.doesNotMatch(feedback, /added nothing/i);
     assert.equal(await page.locator('#toast').evaluate(t => t.classList.contains('bad')), true, 'missing request is not reported as success');
 
@@ -121,7 +121,7 @@ try {
     assert.deepEqual(await selected(page), [42, 45, 46, 54, 57], `${name}: direct number selector adds only found problems`);
     feedback = await page.locator('#toast').textContent();
     assert.match(feedback, /98/);
-    assert.match(feedback, /not found|could not find|missing/i);
+    assert.match(feedback, /not found|could not find|missing|not detected/i);
     assert.equal(await page.locator('#toast').evaluate(t => t.classList.contains('bad')), true, 'direct partial selection reports a warning');
     await page.screenshot({ path: `${out}/${name}.png`, fullPage: false });
     console.log(`${name}: both screenshot requests, loading barrier, missing feedback, and PDF download passed`);

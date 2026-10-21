@@ -139,7 +139,9 @@ export function analyzePage({ words, width, height, figures: rawFigures = [], oc
       if (!followed && (!ocr || bare)) return;
       if (!(w.bold || leads)) return;
       if (bare && (j !== 0 || w.math || next.x0 - w.x1 < 0.25 * bodySize || /^[+−–=×÷<>≤≥*/^.,)\]}-]/.test(next.text))) return;
-      potential.push({ number: m ? +m[1] : +w.text, word: w, bold: !!w.bold, bare, followed, x0: w.x0, y0: w.y0, x1: w.x1, y1: w.y1, base: w.base, size: w.size });
+      potential.push({ number: m ? +m[1] : +w.text, word: w, bold: !!w.bold, bare, followed,
+        inline: j > 0 && !w.bold, rowNumber: seg.words[0].text.match(ocr ? OCR_ANCHOR : ANCHOR)?.[1] ?? null,
+        x0: w.x0, y0: w.y0, x1: w.x1, y1: w.y1, base: w.base, size: w.size });
     });
   }
   const ranges = segs.filter(s => DIRECTION_START.test(s.text)).map(s => ({ ...s, range: directionRange(s.text) })).filter(s => s.range);
@@ -199,6 +201,14 @@ export function analyzePage({ words, width, height, figures: rawFigures = [], oc
 
   // Problem-number anchors.
   const candidates = potential.filter(c => (!c.bare || bareWords.has(c.word)) && !inDirections(c.word));
+  // An OCR gap inside an equation (for example a missed '=' before '0.') does
+  // not establish a new exercise. An ordinary-weight inline token also needs an
+  // aligned exercise label on another row, or a preceding exercise on the same row.
+  const hasRowLabel = c => !c.inline || (c.rowNumber !== null && c.number > +c.rowNumber);
+  const supported = new Set(candidates.filter(c => hasRowLabel(c) || candidates.some(o => o !== c && o.number !== c.number &&
+    Math.abs(o.x0 - c.x0) < 0.6 * bodySize && Math.abs(o.base - c.base) > 0.6 * bodySize &&
+    hasRowLabel(o))));
+  for (let i = candidates.length - 1; i >= 0; i--) if (!supported.has(candidates[i])) candidates.splice(i, 1);
   // OCR can lose the text after a number; keep such a number only if it lines up with others.
   for (let i = candidates.length - 1; i >= 0; i--) {
     const c = candidates[i];

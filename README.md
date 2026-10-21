@@ -12,6 +12,8 @@ Drop in the textbook pages you marked up. Every highlighted problem is pulled ou
 
 Click any boxed problem on the page to add or remove it.
 
+If a visible problem has no box, choose **Read page visually** above the source page, then enter its number again. This rereads the page image with OCR while preserving selected problems and drawn boxes. A PDF with readable prose but no detected problem numbers is read visually automatically. If the reader download fails, the page stays available and the same button retries it.
+
 ## The request box
 
 Type what you want in plain English or Chinese:
@@ -36,7 +38,7 @@ Explicit lists such as `Problems 43, 45, 57` always use the rule reader, even wi
 
 | Step | Where | How |
 | --- | --- | --- |
-| Read the page | `src/textlayer.js`, `src/ocr.js` | PDF text layer through PDF.js (with bold / italic / math-font detection). Scans and photos go through [tesseract.js](https://github.com/naptha/tesseract.js) at 300 dpi with highlighter removed first. |
+| Read the page | `src/textlayer.js`, `src/document.js`, `src/ocr.js` | PDF text layer through PDF.js (with bold / italic / math-font detection). Scans, photos, and PDFs without detected problem numbers use [tesseract.js](https://github.com/naptha/tesseract.js) at 300 dpi with highlighter removed first. A visual reread can recover labels missing from a partial text layer. |
 | Find problems | `src/analyze.js` | Printed problem numbers, aligned plain exercise labels, directions lines (`In Problems 11–18, …`, `Exer. 43–44: …`), headings, and which text belongs to which problem, from word geometry. Works on grids of problems, two-column pages and multi-line word problems. |
 | Find marks and figures | `src/raster.js` | Highlighter strokes: light, single-hue blobs that survive a morphological close/open. Figures: ink not covered by text. Crops grow to include fraction bars and radicals that touch the text. |
 | Lay out | `src/layout.js` | Columns, baseline alignment, work aids and fitting to a page count. Pure functions, unit-tested. |
@@ -47,7 +49,7 @@ Explicit lists such as `Problems 43, 45, 57` always use the rule reader, even wi
 
 ### Download a release
 
-Download `show-your-work-1.0.1.zip` from [GitHub Releases](https://github.com/sodium-qed/show-your-work/releases/latest), extract the complete folder, then run `npm start` inside it with Node.js 22.3.0 or newer. Open `http://localhost:4173`. The release includes the PDF libraries; no `npm install` is needed. Keep the extracted files together; opening `index.html` directly does not support the app's module loading.
+Download `show-your-work-1.0.2.zip` from [GitHub Releases](https://github.com/sodium-qed/show-your-work/releases/latest), extract the complete folder, then run `npm start` inside it with Node.js 22.3.0 or newer. Open `http://localhost:4173`. The release includes the PDF libraries; no `npm install` is needed. Keep the extracted files together; opening `index.html` directly does not support the app's module loading.
 
 ### Run from source
 
@@ -62,7 +64,7 @@ Any static host works (GitHub Pages: Settings → Pages → Deploy from branch �
 
 ### Build a release
 
-`npm run build` stages the complete runnable app in `dist/show-your-work-1.0.1/`. `npm run release:package` also creates the ZIP plus `dist/SHA256SUMS` (Python 3 required for packaging). Build from the release commit so `version.json` records its source revision. See [the release checklist](docs/RELEASING.md).
+`npm run build` stages the complete runnable app in `dist/show-your-work-1.0.2/`. `npm run release:package` also creates the ZIP plus `dist/SHA256SUMS` (Python 3 required for packaging). Build from the release commit so `version.json` records its source revision. See [the release checklist](docs/RELEASING.md).
 
 ## Tests
 
@@ -71,6 +73,7 @@ npm test                                   # unit tests: numbers, request reader
 npx playwright install chromium            # once
 npm run test:e2e -- samples/sample.pdf 2,3,5,10,12,17,19,22,26,29,34
 npm run test:selection                     # plain/split/glued labels, loading, missing-number feedback, PDF download
+npm run test:ocr                           # real browser OCR, incomplete text layers, download failure and retry (network required)
 node tests/ai.e2e.mjs                      # local model in the browser (WebGPU; see the file for a CPU stand-in)
 node tests/agent.eval.mjs rules            # request box scores; see the file for model runs
 ```

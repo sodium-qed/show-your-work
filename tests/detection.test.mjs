@@ -96,3 +96,35 @@ test('bare OCR labels tolerate a wide label gutter but need real following conte
   words.push(word('58', 40, 230));
   assert.deepEqual(numbers(analyze(words, { ocr: true })), [55, 56, 57]);
 });
+
+test('a wide gap inside an equation does not turn its final constant into an exercise', () => {
+  for (const value of [0, 7]) {
+    const expression = line('Apply f(x) + g(x)', 60, 114);
+    // OCR can omit an equals sign, leaving a gap wide enough for the old label
+    // heuristic even though this is still the middle of a continuation line.
+    const constant = word(`${value}.`, expression.at(-1).x1 + 16, 114);
+    const words = [
+      word('42.', 40, 100), ...line('Find the roots of the function.', 60, 100),
+      ...expression, constant, ...line('State the answer.', constant.x1 + 3, 114),
+      ...line('Give the result to six decimal places.', 60, 128),
+      word('43.', 40, 165), ...line('Find the next result.', 60, 165),
+    ];
+    const result = analyze(words, { ocr: true });
+    assert.deepEqual(numbers(result), [42, 43]);
+    const problem = result.anchors.find(a => a.number === 42);
+    assert.match(problem.text, /six decimal places/);
+    assert.ok(problem.text.includes(`${value}.`), 'the equation constant stays in its problem');
+    assert.ok(problem.box.y1 >= 130, 'the final visible line remains inside the problem box');
+  }
+});
+
+test('real exercise zero and aligned compact exercise columns are preserved', () => {
+  const single = [word('0.', 40, 100), ...line('Evaluate the expression.', 60, 100)];
+  assert.deepEqual(numbers(analyze(single, { ocr: true })), [0]);
+  for (const ocr of [false, true]) {
+    for (const rows of [[[1, 2]], [[1, 2], [3, 4]], [[1, 2, 3], [4, 5, 6]]]) {
+      const grid = rows.flatMap((row, i) => row.flatMap((n, j) => [word(`${n}.`, 40 + j * 40, 100 + i * 40), word('x', 60 + j * 40, 100 + i * 40)]));
+      assert.deepEqual(numbers(analyze(grid, { ocr })), rows.flat(), `compact ${rows.length}-row, ${rows[0].length}-column grid, OCR=${ocr}`);
+    }
+  }
+});

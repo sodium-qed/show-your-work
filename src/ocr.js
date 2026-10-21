@@ -1,15 +1,21 @@
-// OCR for scans and photos (pages with no text layer), via tesseract.js in a worker.
+// OCR for scans, photos, and incomplete PDF text layers, via tesseract.js in a worker.
 // Loaded from a CDN only when a page actually needs it.
 
 import { isMarker } from './raster.js';
 
 const TESSERACT = 'https://cdn.jsdelivr.net/npm/tesseract.js@7.0.0/dist/tesseract.esm.min.js';
 let workerPromise = null;
+let importFailures = 0;
 let progress = () => {};
 
 async function worker() {
   workerPromise ||= (async () => {
-    const mod = await import(TESSERACT);
+    // Browsers cache a rejected module import for the rest of the tab's life.
+    // Only after an import failure, use a new URL so a restored connection can retry.
+    const url = importFailures ? `${TESSERACT}?retry=${importFailures}` : TESSERACT;
+    let mod;
+    try { mod = await import(url); }
+    catch (error) { importFailures++; throw error; }
     const T = mod.default || mod;
     const w = await T.createWorker('eng', 1, {
       logger: m => { if (m.status === 'recognizing text') progress(m.progress); },

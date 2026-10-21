@@ -85,8 +85,11 @@ form.mode-panel input { flex: 1; min-width: 160px; padding: 7px 10px; border: 1p
 .chip.on { border-color: var(--ink); box-shadow: inset 0 0 0 1px var(--ink); }
 .chip small { color: var(--muted); }
 .hint { color: var(--muted); font-size: 13px; margin: 6px 0 0; }
-.pager { display: flex; align-items: center; gap: 10px; margin: 4px 0 10px; }
-.page-status { color: var(--muted); font-size: 13px; }
+.pager { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin: 4px 0 10px; }
+.pager .icon { flex-shrink: 0; }
+.page-status { flex-basis: 100%; color: var(--muted); font-size: 13px; }
+.page-status:empty { display: none; }
+.page-status.bad { color: var(--bad); }
 .sheet-scroll { overflow: auto; border-radius: 6px; background: var(--desk); padding: 10px; }
 .surface { position: relative; margin: 0 auto; box-shadow: 0 1px 2px rgba(24, 33, 47, .12), 0 6px 20px rgba(24, 33, 47, .08); background: #fff; }
 .surface canvas { display: block; width: 100%; height: auto; }
