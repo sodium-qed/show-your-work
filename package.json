@@ -3,12 +3,15 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
+  "license": "MIT",
   "description": "Turn highlighted textbook problems into a clean printable exam, entirely in the browser.",
   "engines": {
-    "node": ">=20"
+    "node": ">=22.3.0"
   },
   "scripts": {
     "start": "node scripts/serve.mjs",
+    "build": "node scripts/build.mjs",
+    "release:package": "npm run build && python3 scripts/package-release.py",
     "vendor": "node scripts/vendor.mjs",
     "sample": "node scripts/make-sample.mjs",
     "test": "node --test tests/*.test.mjs",

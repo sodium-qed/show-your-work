@@ -2,9 +2,10 @@
 import { createServer } from 'node:http';
 import { readFile, stat } from 'node:fs/promises';
 import { resolve, extname, sep } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const types = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.pdf': 'application/pdf', '.png': 'image/png', '.jpg': 'image/jpeg', '.wasm': 'application/wasm', '.bcmap': 'application/octet-stream', '.pfb': 'application/octet-stream', '.ttf': 'font/ttf', '.svg': 'image/svg+xml' };
-export function createStaticServer(root = resolve(new URL('..', import.meta.url).pathname)) {
+export function createStaticServer(root = resolve(fileURLToPath(new URL('..', import.meta.url)))) {
   return createServer(async (req, res) => {
     try {
       let path = decodeURIComponent(new URL(req.url, 'http://x').pathname);
@@ -17,7 +18,8 @@ export function createStaticServer(root = resolve(new URL('..', import.meta.url)
     } catch { res.writeHead(404); res.end('Not found'); }
   });
 }
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   const port = Number(process.env.PORT || 4173);
-  createStaticServer().listen(port, 'localhost', () => console.log(`Show Your Work: http://localhost:${port}`));
+  const server = createStaticServer();
+  server.listen(port, 'localhost', () => console.log(`Show Your Work: http://localhost:${server.address().port}`));
 }
