@@ -1,16 +1,4 @@
 node_modules
-dist/
 tests/output/
-playwright-report/
-test-results/
-.env
-.env.*
-!.env.example
-*.log
 .DS_Store
-Thumbs.db
-*.zip
-tmp/
-__pycache__/
-.venv/
-.codex/
+*.log

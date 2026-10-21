@@ -3,21 +3,17 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Browser math worksheet formatter with offline HTML and optional AI formatting through a local helper.",
+  "description": "Turn highlighted textbook problems into a clean printable exam, entirely in the browser.",
   "engines": {
-    "node": ">=22"
+    "node": ">=20"
   },
   "scripts": {
     "start": "node scripts/serve.mjs",
-    "dev": "node scripts/serve.mjs",
-    "build": "node scripts/build.mjs",
-    "preview": "node scripts/serve.mjs --dist",
+    "vendor": "node scripts/vendor.mjs",
+    "sample": "node scripts/make-sample.mjs",
     "test": "node --test tests/*.test.mjs",
     "test:e2e": "node tests/e2e.mjs",
-    "build:html": "node scripts/build-html.mjs",
-    "test:ui": "node tests/preferences-shortcuts.e2e.mjs",
-    "test:text": "node tests/reflow-text.e2e.mjs",
-    "test:ai": "node tests/ai-format.e2e.mjs"
+    "eval:agent": "node tests/agent.eval.mjs"
   },
   "dependencies": {
     "pdf-lib": "1.17.1",
