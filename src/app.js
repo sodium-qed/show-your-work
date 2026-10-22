@@ -1,5 +1,5 @@
 import { openFile, preparePage, cropImage, directionsImage, pngBytes, manualProblem } from './document.js';
-import { layoutExam } from './layout.js';
+import { layoutExam, gridExtent } from './layout.js';
 import { renderExamPdf } from './render-pdf.js';
 import { parseNumbers, formatNumbers } from './numbers.js';
 import { interpret, isExplicitNumberList, loadAgent, onAgentStatus } from './agent.js';
@@ -19,7 +19,7 @@ const state = {
   mode: 'highlights',
   color: null,
   aids: new Map(),       // group key → { kind, parts }
-  settings: { pages: 2, space: 'fill', columns: 0, paper: 'letter', directions: true, ...recall('settings', {}) },
+  settings: { pages: 0, space: 'compact', columns: 0, paper: 'letter', directions: true, ...recall('settings', {}) },
   revision: 0,
   pdf: null,
 };
@@ -225,9 +225,10 @@ function tallyColors() {
   const map = new Map();
   for (const page of allPages()) {
     for (const m of page.marks) {
-      if (m.anchor == null) continue;
+      const anchors = m.anchors || (m.anchor == null ? [] : [m.anchor]);
+      if (!anchors.length) continue;
       const entry = map.get(m.color) || { color: m.color, rgb: m.rgb, problems: new Set() };
-      entry.problems.add(`${page.source.id}:${page.index}:${m.anchor}`);
+      for (const number of anchors) entry.problems.add(`${page.source.id}:${page.index}:${number}`);
       map.set(m.color, entry);
     }
   }
@@ -247,11 +248,19 @@ function refreshColors() {
   for (const c of colors) {
     const b = document.createElement('button');
     b.type = 'button';
-    b.className = `chip${state.color === c.color ? ' on' : ''}`;
+    const marked = problemsMarked(c.color);
+    const active = marked.length > 0 && marked.every(p => state.selected.has(p.id));
+    b.className = `chip${active ? ' on' : ''}`;
+    b.setAttribute('aria-pressed', String(active));
     b.innerHTML = `<span class="sw"></span><span>${cap(c.color)}</span><small>${c.count}</small>`;
     b.querySelector('.sw').style.background = `rgb(${c.rgb.join(',')})`;
-    b.title = `Select every problem marked in ${c.color}`;
-    b.onclick = () => selectColor(c.color, { replace: state.color !== c.color && !state.selected.size ? true : false, toggle: true });
+    b.title = `Select only ${c.color} problems. Shift-click to add them to the selection.`;
+    b.onclick = async e => {
+      const additive = e.shiftKey;
+      b.disabled = true;
+      await waitForFiles();
+      selectColor(c.color, { replace: !additive });
+    };
     box.append(b);
   }
 }
@@ -260,13 +269,14 @@ const cap = s => s[0].toUpperCase() + s.slice(1);
 function problemsMarked(color) {
   const out = [];
   for (const page of allPages()) {
-    const nums = new Set(page.marks.filter(m => m.anchor != null && (color === 'any' || m.color === color)).map(m => m.anchor));
+    const nums = new Set(page.marks.filter(m => color === 'any' || m.color === color)
+      .flatMap(m => m.anchors || (m.anchor == null ? [] : [m.anchor])));
     out.push(...page.problems.filter(p => nums.has(p.number)));
   }
   return out;
 }
 
-function selectColor(color, { replace = false, toggle = false } = {}) {
+function selectColor(color, { replace = true, toggle = false } = {}) {
   const list = problemsMarked(color);
   if (!list.length) { toast(color === 'any' ? 'No highlighted problems found.' : `No problems are marked in ${color}.`, true); return 0; }
   const allOn = list.every(p => state.selected.has(p.id));
@@ -475,11 +485,28 @@ function renderGroups(groups) {
     const sel = document.createElement('select');
     sel.setAttribute('aria-label', 'Work area for this group');
     const parts = g.aid.parts?.length ? g.aid.parts : [];
-    const opts = [['blank', 'Blank space'], ['polar', 'Polar grid'], ['xy', 'Graph paper'], ['line', 'Answer line']];
+    const opts = [['blank', 'Blank space'], ['polar', 'Polar grid'], ['xy', 'Coordinate plane'], ['complex', 'Complex plane'], ['numberline', 'Number line'], ['lined', 'Ruled lines'], ['dot', 'Dot grid'], ['line', 'Answer line']];
     for (const [v, t] of opts) { const o = document.createElement('option'); o.value = v; o.textContent = t + (parts.length && v !== 'line' ? ` + (${parts.join(')(')}) lines` : ''); sel.append(o); }
     sel.value = g.aid.kind;
-    sel.onchange = () => { state.aids.set(g.key, { kind: sel.value, parts }); changed(false); };
+    sel.onchange = () => { state.aids.set(g.key, { ...g.aid, kind: sel.value, parts }); changed(false); };
     row.append(sel);
+    if (['xy', 'polar', 'complex', 'numberline'].includes(g.aid.kind)) {
+      const label = document.createElement('label'); label.className = 'graph-range';
+      const title = g.aid.kind === 'polar' ? 'Radius' : 'Range ±';
+      label.append(document.createTextNode(title));
+      const range = document.createElement('input');
+      range.type = 'number'; range.min = '0.1'; range.max = '1000000'; range.step = 'any';
+      range.setAttribute('aria-label', `${title} for this group`);
+      range.placeholder = 'Auto'; range.value = g.aid.extent ?? '';
+      range.title = 'Leave empty to size each graph from its problem. Enter the minimum radius or distance from zero.';
+      range.onchange = () => {
+        if (range.value && !range.checkValidity()) { range.reportValidity(); return; }
+        const aid = { ...g.aid, parts };
+        if (range.value) aid.extent = Number(range.value); else delete aid.extent;
+        state.aids.set(g.key, aid); changed(false);
+      };
+      label.append(range); row.append(label);
+    }
     el.append(p, row);
     box.append(el);
   }
@@ -508,7 +535,7 @@ async function rebuild() {
     const groups = buildGroups();
     renderGroups(groups);
     const has = groups.length > 0;
-    $('#download').disabled = $('#print').disabled = !has;
+    $('#download').disabled = $('#print').disabled = true;
     if (!has) { $('#preview').replaceChildren(); $('#exam-status').textContent = ''; state.pdf = null; return; }
     $('#exam-status').textContent = 'Laying out…'; $('#exam-status').classList.remove('bad');
     const images = new Map();
@@ -521,7 +548,8 @@ async function rebuild() {
         const img = await imageFor(ref, () => cropImage(pageOf(p), p.rect, { parts: p.parts }));
         if (revision !== state.revision) return;
         images.set(ref, { bytes: img.bytes, type: 'png' });
-        problems.push({ id: p.id, w: img.w, h: img.h, ref, extent: p.extent, baseline: p.baseline });
+        const graphText = p.graphText || p.text;
+        problems.push({ id: p.id, w: img.w, h: img.h, ref, text: graphText, extent: gridExtent(graphText, { kind: g.aid.kind }), baseline: p.baseline });
       }
       let directions = null, figure = null;
       if (g.info) {
@@ -548,6 +576,7 @@ async function rebuild() {
     const bytes = await renderExamPdf(PDFLib, layout, images);
     if (revision !== state.revision) return;
     state.pdf = bytes;
+    $('#download').disabled = $('#print').disabled = false;
     const n = groups.reduce((a, g) => a + g.problems.length, 0);
     $('#exam-status').textContent = layout.warnings[0] || `${n} problem${n === 1 ? '' : 's'} on ${layout.pages.length} side${layout.pages.length === 1 ? '' : 's'}${layout.pages.length === 2 && state.settings.pages === 2 ? ' — print double-sided' : ''}.`;
     $('#exam-status').classList.toggle('bad', layout.warnings.length > 0);
@@ -578,9 +607,16 @@ async function showPreview(bytes) {
   doc.destroy();
 }
 
-let timer;
+let timer, previewResizeTimer;
 function changed(redrawOverlay = true) {
   state.revision++;
+  state.pdf = null;
+  $('#download').disabled = $('#print').disabled = true;
+  const selection = [...state.selected.values()];
+  const numbers = formatNumbers(selection.map(p => p.number).filter(n => n != null));
+  const drawn = selection.filter(p => p.number == null).length;
+  $('#selection-summary').textContent = selection.length ? `Selected ${selection.length}: ${[numbers, drawn ? `${drawn} drawn box${drawn === 1 ? '' : 'es'}` : ''].filter(Boolean).join(' · ')}` : '';
+  refreshColors();
   if (redrawOverlay) drawOverlay();
   clearTimeout(timer);
   timer = setTimeout(rebuild, 120);
@@ -598,6 +634,10 @@ function bindSettings() {
     remember('settings', state.settings); changed(false);
   });
   on('#set-pages', 'pages', Number); on('#set-space', 'space'); on('#set-columns', 'columns', Number); on('#set-paper', 'paper'); on('#set-directions', 'directions');
+  $('#save-paper').onclick = () => {
+    Object.assign(state.settings, { pages: 0, space: 'compact', columns: 0 });
+    remember('settings', state.settings); syncSettings(); changed(false);
+  };
 }
 
 /* ---------- the request box ---------- */
@@ -651,16 +691,22 @@ function applyFields(f, { replaceNumbers = false } = {}) {
     if (missing.length) warnings.push(`Not selected: ${formatNumbers(missing)}.`);
   }
   const s = state.settings;
-  if (f.pages) { s.pages = Math.min(4, f.pages); done.push(f.pages === 2 ? '2 sides' : `${f.pages} side${f.pages > 1 ? 's' : ''}`); }
+  if (f.pages !== undefined) { s.pages = Math.min(4, f.pages); done.push(f.pages === 0 ? 'fewest sides' : f.pages === 2 ? '2 sides' : `${f.pages} side${f.pages > 1 ? 's' : ''}`); }
   if (f.columns) { s.columns = f.columns; done.push(`${f.columns} per row`); }
-  if (f.space) { s.space = f.space === 'medium' ? 'small' : f.space; done.push({ fill: 'fill the page', small: 'a little room', large: 'lots of room', none: 'no work space' }[s.space]); }
+  if (f.space) { s.space = f.space === 'medium' ? 'small' : f.space; done.push({ compact: 'compact spacing', fill: 'fill the page', small: 'a little room', large: 'lots of room', none: 'no work space' }[s.space]); }
   if (typeof f.directions === 'boolean') { s.directions = f.directions; done.push(f.directions ? 'with directions' : 'no directions'); }
   if (f.paper) { s.paper = f.paper; done.push(f.paper === 'a4' ? 'A4' : 'Letter'); }
   if (f.graph) {
     const groups = buildGroups();
     const plotting = groups.filter(g => /plot|graph|sketch/i.test(g.info?.dir.raw || ''));
-    for (const g of plotting.length ? plotting : groups) state.aids.set(g.key, { kind: f.graph === 'none' ? 'blank' : f.graph, parts: g.aid.parts || [] });
-    done.push(f.graph === 'none' ? 'no grids' : `${f.graph === 'polar' ? 'polar grids' : 'graph paper'}`);
+    for (const g of plotting.length ? plotting : groups) state.aids.set(g.key, { ...g.aid, kind: f.graph === 'none' ? 'blank' : f.graph, parts: g.aid.parts || [] });
+    done.push(({ none: 'no grids', blank: 'blank space', polar: 'polar grids', xy: 'coordinate planes', complex: 'complex planes', numberline: 'number lines', lined: 'ruled lines', dot: 'dot grids' })[f.graph]);
+  }
+  if (f.graph_extent !== undefined) {
+    for (const g of buildGroups()) if (['xy', 'polar', 'complex', 'numberline'].includes(g.aid.kind)) {
+      state.aids.set(g.key, { ...g.aid, extent: f.graph_extent });
+    }
+    done.push(`graph range ${f.graph_extent}`);
   }
   remember('settings', s); syncSettings(); refreshColors();
   if (done.length) changed();
@@ -731,7 +777,7 @@ function init() {
     frame.onload = () => { try { frame.contentWindow.focus(); frame.contentWindow.print(); } catch { window.open(frame.src); } setTimeout(() => frame.remove(), 60000); };
     document.body.append(frame);
   };
-  window.addEventListener('resize', () => { clearTimeout(timer); timer = setTimeout(() => state.pdf && showPreview(state.pdf), 250); });
+  window.addEventListener('resize', () => { clearTimeout(previewResizeTimer); previewResizeTimer = setTimeout(() => state.pdf && showPreview(state.pdf), 250); });
   window.__syw = { state, addFiles, ask, selectNumbers, selectColor, readPageVisually, rebuild: () => { state.revision++; return rebuild(); } };
 }
 init();

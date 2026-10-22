@@ -440,18 +440,39 @@ export function analyzePage({ words, width, height, figures: rawFigures = [], oc
   return { anchors, directions, headings, figures, bodySize, segments: segs };
 }
 
-/** Map a highlight mark to the anchor whose cell it covers most. */
-export function anchorForMark(mark, anchors, bodySize = 10) {
-  let best = null, bestArea = 0;
-  const area = Math.max(1, (mark.x1 - mark.x0) * (mark.y1 - mark.y0));
-  for (const a of anchors) {
-    const cell = { x0: a.x0 - 0.8 * bodySize, x1: a.right, y0: Math.min(a.y0, a.box?.y0 ?? a.y0) - 0.4 * bodySize, y1: Math.max(a.box?.y1 ?? a.y1, a.y1) + 0.4 * bodySize };
-    const o = Math.max(0, overlapX(mark, cell)) * Math.max(0, overlapY(mark, cell));
-    if (o > bestArea) { best = a; bestArea = o; }
-  }
-  if (best && bestArea >= 0.3 * area) return best;
-  // A tick or dot in the margin: the nearest anchor to its right on the same line.
+/** Associate strokes with observed labels/text, never the unused space in a cell. */
+export function anchorsForMark(mark, anchors, bodySize = 10) {
+  const overlap = (a, b) => Math.max(0, overlapX(a, b)) * Math.max(0, overlapY(a, b));
+  const area = r => Math.max(1, (r.x1 - r.x0) * (r.y1 - r.y0));
+  const coverage = r => (mark.spans || [mark]).reduce((sum, span) => sum + overlap(span, r), 0) / area(r);
+  const labels = anchors.filter(a => mark.enclosed?.includes(a.number) || coverage(a) >= 0.2 ||
+    // Bounds-only callers lack the raster footprint (e.g. PDF annotation rects).
+    (!mark.spans && inside(a, mark)));
+  // A connected swipe can cover one number and another question's prose. When
+  // labels are present, require substantial prose coverage to avoid including
+  // a neighbor merely grazed by the edge of a circle around the first label.
+  const content = anchors.filter(a => {
+    const words = (a.words || []).filter(w => w !== a.word);
+    if (!labels.length) return words.some(w => coverage(w) >= 0.25);
+    const total = words.reduce((sum, w) => sum + area(w), 0);
+    const covered = words.reduce((sum, w) => sum + coverage(w) * area(w), 0);
+    const fullWidth = words.filter(w => coverage(w) >= 0.6).reduce((sum, w) => sum + w.x1 - w.x0, 0);
+    return total > 0 && (covered / total >= 0.5 || fullWidth >= 2 * bodySize);
+  });
+  const figures = anchors.filter(a => (a.figures || []).some(f => coverage(f) >= 0.1));
+  const observed = [...new Set([...labels, ...content, ...figures])];
+  if (observed.length) return observed;
+  // A compact tick immediately left of a label is an intentional margin mark.
+  // Distant decoration and ambiguous marks between rows are left unassigned.
+  if (mark.y1 - mark.y0 > 2 * bodySize || mark.x1 - mark.x0 > 3 * bodySize) return [];
   const cy = (mark.y0 + mark.y1) / 2;
-  const right = anchors.filter(a => a.x0 >= mark.x0 - bodySize && a.x0 - mark.x1 < 3 * bodySize && cy > a.y0 - 0.5 * bodySize && cy < a.y1 + 0.5 * bodySize);
-  return right.sort((p, q) => p.x0 - q.x0)[0] || null;
+  const right = anchors.filter(a => mark.x1 <= a.x0 + 0.2 * bodySize && a.x0 - mark.x1 <= 1.6 * bodySize &&
+    cy >= a.y0 - 0.25 * bodySize && cy <= a.y1 + 0.25 * bodySize).sort((a, b) =>
+    Math.hypot(a.x0 - mark.x1, (a.y0 + a.y1) / 2 - cy) - Math.hypot(b.x0 - mark.x1, (b.y0 + b.y1) / 2 - cy));
+  return right.length === 1 ? right : [];
+}
+
+/** Compatibility helper for callers which need the first associated label. */
+export function anchorForMark(mark, anchors, bodySize = 10) {
+  return anchorsForMark(mark, anchors, bodySize)[0] || null;
 }

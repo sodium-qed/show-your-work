@@ -6,7 +6,11 @@ import { parseNumbers } from '../src/numbers.js';
 const omitted = new Set([1, 2, 6, 7, 9, 12, 15, 16, 19, 20, 22, 42]);
 const omitRequest = '1- 50, omit (1, 2, 6, 7, 9, 12, 15, 16, 19, 20, 22, 42), look at all pages';
 const included = Array.from({ length: 50 }, (_, i) => i + 1).filter(n => !omitted.has(n));
+const reportedSelection = [15, 17, 19, 23, 27, 29, 31, 33, 37, 39, 41];
+const reportedRequest = '只要15, 17, 19, 23, 27, 29, 31, 33, 37, 39, 41';
 const screenshotRequests = [
+  [reportedRequest, reportedSelection],
+  ['Only 15, 17, 19, 23, 27, 29, 31, 33, 37, 39, 41 please', reportedSelection],
   ['Problems 43, 45, 57', [43, 45, 57]],
   ['42, 54, 57', [42, 54, 57]],
   ['1-40 even', Array.from({ length: 20 }, (_, i) => 2 * (i + 1))],
@@ -90,4 +94,66 @@ test('a ready local model is bypassed for standalone problem lists, but can inte
   assert.deepEqual(parseNumbers(removal.fields.remove_numbers), [47, 49]);
   assert.equal(removal.fields.add_numbers, undefined);
   assert.deepEqual(requests, ['get rid of number 47 and 49']);
+});
+
+
+test('bilingual replacement commands are exact sets; add/remove and dimensions are not', () => {
+  for (const request of [
+    '只要第15题和第17题', '请帮我只选15、17。', '我只要１５，１７',
+    '仅选15和17', 'Please select only questions: 15 and 17.',
+    'I only want 15, 17', 'keep exactly 15, 17', 'replace the current selection with 15, 17',
+    '换成15和17', '15, 17 only', '15, 17, 查看所有页面',
+  ]) assert.deepEqual(readNumberSelection(request), [15, 17], request);
+  for (const request of ['add 15, 17', 'also add 15, 17', '再加15和17', 'remove 15', '不要15', '2 columns', 'grid extent 15']) {
+    assert.equal(readNumberSelection(request), null, request);
+  }
+  assert.deepEqual(readNumberSelection('只要15到21奇数，不要17和19'), [15, 21]);
+  assert.deepEqual(readNumberSelection('only 15-21 odd, excluding (17, 19)'), [15, 21]);
+  assert.deepEqual(readNumberSelection('only 15, except 15'), []);
+  assert.deepEqual(readNumberSelection('odd 15-21'), [15, 17, 19, 21]);
+  assert.deepEqual(parseNumbers('１５，１７'), [15, 17]);
+  assert.deepEqual(parseNumbers('1000, 15.5, 17'), [17], 'large labels and decimals cannot be truncated into other labels');
+});
+
+test('model range endpoints cannot authorize unrequested interior questions or layout counts', () => {
+  assert.deepEqual(reconcile('remove 15 and 41', { add_numbers: '15-41', remove_numbers: '15-41' }), { remove_numbers: '15 and 41' });
+  assert.deepEqual(reconcile('2 columns', { add_numbers: '2' }), { columns: 2 });
+  assert.deepEqual(reconcile('polar grid radius 10', { add_numbers: '10', graph_extent: 15 }), { graph: 'polar', graph_extent: 10 });
+  assert.deepEqual(reconcile('select problems 15, 17', { add_numbers: '15-17' }), { add_numbers: '15, 17' });
+  assert.deepEqual(reconcile('add 15 and 41', { add_numbers: '15-41' }), { add_numbers: '15 and 41' });
+});
+
+test('the request reader exposes additional work aids, explicit graph scale and compact printing', () => {
+  for (const [request, kind] of [
+    ['complex plane', 'complex'], ['Argand diagram', 'complex'], ['复数平面', 'complex'],
+    ['number line', 'numberline'], ['数轴', 'numberline'], ['lined paper', 'lined'],
+    ['dot grid', 'dot'], ['blank work area', 'blank'], ['no grids', 'none'],
+  ]) assert.equal(readRequest(request).graph, kind, request);
+  assert.deepEqual(readRequest('polar grids, radius 10'), { graph: 'polar', graph_extent: 10 });
+  assert.deepEqual(readRequest('complex plane extent to 25'), { graph: 'complex', graph_extent: 25 });
+  assert.deepEqual(reconcile('complex plane for problem 15', { graph_extent: 15 }).graph_extent, undefined);
+  assert.deepEqual(readRequest('save paper, use the fewest pages'), { pages: 0, space: 'compact' });
+  assert.deepEqual(readRequest('compact'), { space: 'compact' });
+  assert.deepEqual(readRequest('fill the page'), { space: 'fill' });
+});
+
+
+test('exact lists keep replacement semantics alongside layout settings', () => {
+  for (const request of ['only 15, 17, 19, compact', '只要15,17,19，紧凑', 'only 15, 17, 19; 2 columns; compact']) {
+    assert.deepEqual(readNumberSelection(request), [15, 17, 19], request);
+    const fields = reconcile(request, { add_numbers: '15-19', remove_numbers: '17' });
+    assert.deepEqual(parseNumbers(fields.add_numbers), [15, 17, 19]);
+    assert.equal(fields.space, 'compact');
+    assert.equal(fields.remove_numbers, undefined);
+  }
+  const fields = readRequest('only 15, 17; complex planes to 10');
+  assert.deepEqual(readNumberSelection('only 15, 17; complex planes to 10'), [15, 17]);
+  assert.deepEqual(fields, { add_numbers: '15, 17', graph: 'complex', graph_extent: 10 });
+  for (const request of ['graph range 10', 'coordinate planes to 10', 'number line range 10', 'polar grid radius 10']) {
+    assert.equal(readRequest(request).add_numbers, undefined, request);
+    assert.equal(readRequest(request).graph_extent, 10, request);
+  }
+  for (const request of ['no complex planes', 'no number lines', 'without dot grids', '不要复数平面']) {
+    assert.equal(readRequest(request).graph, 'none', request);
+  }
 });

@@ -70,11 +70,29 @@ try {
   const bytes = await exercises(numbers);
   await writeFile(`${out}/numbered-exercises.pdf`, bytes);
   await addFile(page, bytes, 'numbered-exercises.pdf');
+  // Fix the fixture's layout independently of the app's paper-saving defaults.
+  await page.locator('#set-pages').selectOption('2');
   assert.deepEqual(await page.evaluate(() => window.__syw.state.sources[0].pages.flatMap(p => p.problems.map(p => p.number))), numbers);
   await page.locator('#ai-load').click();
   await page.waitForFunction(() => document.querySelector('#ai-status').textContent === 'Local AI on');
   await ask(page, 'add 7, 9, 41, 42');
   assert.deepEqual(await selectedNumbers(page), [7, 9, 41, 42]);
+
+  // Regression: the Chinese "only" request previously retained stale choices
+  // after 41. Keep the model on and deliberately seed unwanted later exercises.
+  const exact = [15, 17, 19, 23, 27, 29, 31, 33, 37, 39, 41];
+  await ask(page, 'add 43, 45, 47, 49, 50');
+  await ask(page, '只要15, 17, 19, 23, 27, 29, 31, 33, 37, 39, 41');
+  assert.deepEqual(await selectedNumbers(page), exact, 'only the 11 requested labels survive with Local AI on');
+  assert.doesNotMatch(await page.locator('#toast').textContent(), /local AI/i, 'literal Chinese selection bypasses the unreliable model');
+  await ask(page, 'add 43');
+  assert.deepEqual(await selectedNumbers(page), [...exact, 43]);
+  await ask(page, 'Please select only questions 15, 17.');
+  assert.deepEqual(await selectedNumbers(page), [15, 17]);
+  await ask(page, 'add 43');
+  await ask(page, 'only 15, 17, 19, compact');
+  assert.deepEqual(await selectedNumbers(page), [15, 17, 19], 'layout clauses preserve exact replacement');
+  await ask(page, '7, 9, 41, 42');
 
   const laterBytes = await exercises([101, 102]);
   await page.evaluate(bytes => {
@@ -156,7 +174,7 @@ try {
   assert.equal(await download.failure(), null);
   await download.saveAs(`${out}/range-selection-exam.pdf`);
   const exam = await PDFDocument.load(await readFile(`${out}/range-selection-exam.pdf`));
-  assert.equal(exam.getPageCount(), 2);
+  assert.equal(exam.getPageCount(), 1, 'compact mode does not pad three small problems to two sides');
 
   // Use original generated pages to exercise duplicate section numbering without
   // embedding the user's textbook in the repository or suppressing other sources.

@@ -20,7 +20,7 @@ test('problem number lists', () => {
 
 test('the request reader understands the original Chinese request', () => {
   const zh = '请帮我把所有绿色的问题全部都提取出来，制作成一个数学考试风格的题目。题目要留出一定空间给我当过程，完全考试风格，不要浪费空间，紧凑一些。一页double side。只要题目不要有任何那种名字什么那种垃圾东西。';
-  assert.deepEqual(readRequest(zh), { highlight_color: 'green', pages: 2, space: 'fill' });
+  assert.deepEqual(readRequest(zh), { highlight_color: 'green', pages: 2, space: 'compact' });
   assert.deepEqual(readRequest('remove 47'), { remove_numbers: '47' });
   assert.deepEqual(readRequest('two columns, lots of room to work'), { columns: 2, space: 'large' });
 });
