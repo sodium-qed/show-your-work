@@ -1,6 +1,6 @@
 // Load PDFs and images, render pages, read text (text layer or OCR), find problems.
 import { pageWords } from './textlayer.js';
-import { analyzePage, anchorForMark, cleanDirections } from './analyze.js';
+import { analyzePage, anchorsForMark, cleanDirections } from './analyze.js';
 import { findMarks, findFigures, fitToInk, eraseMarks, toPrintGray } from './raster.js';
 import { aidFor, gridExtent } from './layout.js';
 import { canEncode } from './render-pdf.js';
@@ -289,8 +289,11 @@ export async function preparePage(source, index, onStatus = () => {}, { forceOcr
     return previous;
   }
   onStatus('Finding problems…');
-  const marks = findMarks(img, r.scale, analysis.bodySize, { figures: analysis.figures, words });
-  for (const m of marks) m.anchor = anchorForMark(m, analysis.anchors, analysis.bodySize)?.number ?? null;
+  const marks = findMarks(img, r.scale, analysis.bodySize, { figures: analysis.figures, words, anchors: analysis.anchors });
+  for (const m of marks) {
+    m.anchors = anchorsForMark(m, analysis.anchors, analysis.bodySize).map(a => a.number);
+    m.anchor = m.anchors[0] ?? null;
+  }
 
   const model = { source, index, width: r.width, height: r.height, scale: r.scale, canvas: r.canvas, imageBounds: r.imageBounds, img, ocr, ocrAttempted, readWarning, readNotice, nativeWords, nativeAnalysis, words, analysis, marks, problems: [], directions: [] };
   const bs = analysis.bodySize;
@@ -318,11 +321,12 @@ export async function preparePage(source, index, onStatus = () => {}, { forceOcr
       id: `${source.id}:${index}:${a.number}`, number: a.number, page: index, sourceId: source.id,
       review: !!a.review,
       rect, parts, baseline: a.base - rect.y0, text: a.words.filter(w => !w.math && w !== a.word).map(w => w.text).join(' '),
+      graphText: a.words.filter(w => w !== a.word).map(w => w.text).join(' '),
       group: di >= 0 ? `${source.id}:${index}:d${di}` : `${source.id}:${index}:none`, detected: true,
     });
   }
   model.problems.sort((p, q) => p.number - q.number);
-  for (const p of model.problems) p.extent = gridExtent(p.text);
+  for (const p of model.problems) p.extent = gridExtent(p.graphText || p.text, model.directions.find(d => d.key === p.group)?.aid.kind || 'xy');
   source.pages[index] = model;
   return model;
 }

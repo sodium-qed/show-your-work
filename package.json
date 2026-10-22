@@ -21,7 +21,8 @@
     "eval:agent": "node tests/agent.eval.mjs",
     "test:ranges": "node tests/range-selection.e2e.mjs",
     "test:scan": "node tests/scan-layout.e2e.mjs",
-    "test:images": "node tests/pdf-images.e2e.mjs"
+    "test:images": "node tests/pdf-images.e2e.mjs",
+    "test:workspace": "node tests/workspace.e2e.mjs"
   },
   "dependencies": {
     "pdf-lib": "1.17.1",

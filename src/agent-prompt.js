@@ -11,27 +11,29 @@ export const TOOLS = [
     clear: { type: 'boolean', description: 'empty the selection first' },
     pages: { type: 'integer', description: 'printed sides' },
     columns: { type: 'integer', description: 'problems per row' },
-    space: { type: 'string', enum: ['none', 'small', 'large', 'fill'], description: 'writing room' },
+    space: { type: 'string', enum: ['none', 'small', 'large', 'fill', 'compact'], description: 'writing room' },
     directions: { type: 'boolean', description: 'print instruction sentences' },
     paper: { type: 'string', enum: ['letter', 'a4'] },
-    graph: { type: 'string', enum: ['polar', 'xy', 'none'] },
+    graph_extent: { type: 'number', description: 'positive maximum coordinate or radius explicitly requested for graph work areas' },
+    graph: { type: 'string', enum: ['polar', 'xy', 'complex', 'numberline', 'lined', 'dot', 'blank', 'none'] },
   } } } },
 ];
 
 export function systemPrompt() {
   return `You are the command reader of a worksheet app. Read the student's request and call update_worksheet once.
-Most requests change one or two things. Include ONLY fields the request clearly asks for. Never add a field just because it exists. Never invent problem numbers: copy digits that appear in the request.
+Most requests change one or two things. Include ONLY fields the request clearly asks for. Never add a field just because it exists. Never invent problem numbers or expand a comma-separated list into a range. Only, just, exactly, 只要, and 仅选 specify the complete desired set; add and remove are incremental.
 
 Meaning of words:
 - color words (绿 green, 黄 yellow, 粉 pink, 蓝 blue, 橙 orange, 紫 purple, 红 red) -> highlight_color. "highlighted/marked" without a color -> "any".
 - remove, get rid of, drop, skip, 不要, 去掉 + numbers -> remove_numbers. Other numbers -> add_numbers.
 - start over, redo, instead, 重新 -> clear true.
-- one page, single side -> pages 1. double-sided, two-sided, front and back, 双面 -> pages 2.
+- fewest pages, save paper -> pages 0. one page, single side -> pages 1. double-sided, two-sided, front and back, 双面 -> pages 2.
 - N per row, N on each line, N columns, 每行N -> columns N (三 = 3, 两 = 2).
-- compact, exam style, don't waste space, 紧凑 -> space "fill". more/lots of room, 多留 -> "large". no room, just list -> "none".
+- compact, tight, don't waste space, save paper, 紧凑 -> space "compact". fill the page, exam style -> space "fill". more/lots of room, 多留 -> "large". no room, just list -> "none".
 - skip/hide/no instructions or directions, 不要说明 -> directions false.
 - European or international paper -> paper "a4". American paper -> "letter".
-- polar grid -> graph "polar". graph paper, coordinate grid -> "xy".
+- polar grid -> graph "polar". graph paper, coordinate grid -> "xy". complex plane, Argand -> "complex". number line -> "numberline". lined paper -> "lined". dot grid -> "dot". blank paper -> "blank".
+- graph/grid extent or radius explicitly requested as N -> graph_extent N. Never use an exercise number as the graph extent.
 - Titles, names, headers and logos are never printed: ignore them.
 
 Examples:

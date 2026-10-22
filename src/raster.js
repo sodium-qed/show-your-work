@@ -32,7 +32,9 @@ export function isMarker(r, g, b) {
   const l = 0.299 * r + 0.587 * g + 0.114 * b;
   if (l < 145) return false; // highlighters are light; colored print (red numbers, cyan arrows) is not
   const [, s, v] = hsv(r, g, b);
-  return s >= 0.16 && v >= 0.6;
+  // Pale scanned greens often have only 10–15% saturation. Keep a minimum
+  // channel separation so near-neutral paper/JPEG noise is not a marker.
+  return s >= 0.09 && Math.max(r, g, b) - Math.min(r, g, b) >= 20 && v >= 0.6;
 }
 
 /** Block-reduce a predicate over the image into a coarse grid (cell = `step` pixels). */
@@ -56,6 +58,22 @@ function grid(img, step, predicate, minShare = 0) {
     for (let k = 0; k < out.length; k++) out[k] = counts[k] >= need ? 1 : 0;
   }
   return { mask: out, gw, gh };
+}
+
+/** Separate color families before joining strokes: touching yellow is not green. */
+function markerGrids(img, step) {
+  const gw = Math.ceil(img.width / step), gh = Math.ceil(img.height / step);
+  const counts = new Map();
+  for (let y = 0; y < img.height; y++) for (let x = 0; x < img.width; x++) {
+    const i = (y * img.width + x) * 4;
+    const r = img.data[i], g = img.data[i + 1], b = img.data[i + 2];
+    if (!isMarker(r, g, b)) continue;
+    const color = hueName(hsv(r, g, b)[0]);
+    if (!counts.has(color)) counts.set(color, new Uint16Array(gw * gh));
+    counts.get(color)[Math.floor(y / step) * gw + Math.floor(x / step)]++;
+  }
+  const need = Math.max(1, 0.3 * step * step);
+  return { gw, gh, masks: [...counts].map(([color, values]) => ({ color, mask: Uint8Array.from(values, n => n >= need ? 1 : 0) })) };
 }
 
 function dilate(mask, gw, gh, r) {
@@ -112,18 +130,45 @@ function components(mask, gw, gh) {
  * usually does not. Figure/text context lets us distinguish those cases.
  * Returns [{ x0, y0, x1, y1 (page units), color, rgb, area }].
  */
-export function findMarks(img, scale, bodySize = 10, { figures = [], words = [] } = {}) {
+export function findMarks(img, scale, bodySize = 10, { figures = [], words = [], anchors = [] } = {}) {
   const step = Math.max(1, Math.round(scale)); // ~1 page unit per cell
   const unit = step / scale;
-  const { mask, gw, gh } = grid(img, step, isMarker, 0.3);
+  const { masks, gw, gh } = markerGrids(img, step);
   // Close (fill text holes inside a highlight), then open (drop thin colored text and rules).
   const closeR = Math.max(1, Math.round(1.5 / unit));
   const openR = Math.max(1, Math.round(1.6 / unit));
-  let m = erode(dilate(mask, gw, gh, closeR), gw, gh, closeR);
-  m = dilate(erode(m, gw, gh, openR), gw, gh, openR);
-  const { comps } = components(m, gw, gh);
+  // Opening removes thin printed colored text, but also thin circles around
+  // exercise numbers. Restore only components which actually enclose a label.
+  const comps = masks.flatMap(({ color, mask }) => {
+    const closed = erode(dilate(mask, gw, gh, closeR), gw, gh, closeR);
+    const opened = dilate(erode(closed, gw, gh, openR), gw, gh, openR);
+    return components(closed, gw, gh).comps.filter(c => {
+      c.color = color; c.mask = mask;
+      c.enclosed = enclosedLabels(c, gw, unit, anchors);
+      return c.enclosed.length || c.cells.some(k => opened[k]);
+    });
+  });
   const marks = [];
   const pageArea = gw * gh;
+  // Splitting colors must not turn a multicolored photograph/diagram into
+  // several apparently uniform highlights. Use the independently known native
+  // image footprint and its aggregate coverage before inspecting each stroke.
+  const multicolorImages = figures.filter(f => {
+    if (!f.pdfImage || masks.length < 2) return false;
+    const x0 = Math.max(0, Math.floor(f.x0 / unit)), x1 = Math.min(gw, Math.ceil(f.x1 / unit));
+    const y0 = Math.max(0, Math.floor(f.y0 / unit)), y1 = Math.min(gh, Math.ceil(f.y1 / unit));
+    const counts = masks.map(() => 0);
+    let total = 0, left = x1, right = x0, top = y1, bottom = y0;
+    for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) {
+      const k = y * gw + x;
+      let colored = false;
+      for (let i = 0; i < masks.length; i++) if (masks[i].mask[k]) { counts[i]++; colored = true; }
+      if (colored) { total++; left = Math.min(left, x); right = Math.max(right, x + 1); top = Math.min(top, y); bottom = Math.max(bottom, y + 1); }
+    }
+    const cells = Math.max(1, (x1 - x0) * (y1 - y0));
+    return total >= 0.5 * cells && right - left >= 0.8 * (x1 - x0) && bottom - top >= 0.8 * (y1 - y0) &&
+      counts.filter(n => n >= 0.1 * cells).length >= 2 && Math.max(...counts) < 0.8 * total;
+  });
   const shadedImageFill = (c, variance) => {
     // A warm, shaded photograph can have one dominant hue without being a
     // highlighter. Require both a broad fill of its own native image footprint
@@ -182,11 +227,14 @@ export function findMarks(img, scale, bodySize = 10, { figures = [], words = [] 
   };
   for (const c of comps) {
     const w = (c.x1 - c.x0 + 1) * unit, h = (c.y1 - c.y0 + 1) * unit;
-    if (Math.min(w, h) < 0.5 * bodySize || c.area * unit * unit < 0.6 * bodySize * bodySize) continue;
+    if (Math.min(w, h) < 0.5 * bodySize || c.area * unit * unit < (c.enclosed.length ? 0.25 : 0.6) * bodySize * bodySize) continue;
     if (c.area > 0.2 * pageArea) continue;
+    if (multicolorImages.some(f => c.x0 * unit >= f.x0 - 2 * unit && (c.x1 + 1) * unit <= f.x1 + 2 * unit &&
+      c.y0 * unit >= f.y0 - 2 * unit && (c.y1 + 1) * unit <= f.y1 + 2 * unit &&
+      c.area * unit * unit >= 0.1 * (f.x1 - f.x0) * (f.y1 - f.y0))) continue;
     // Mostly highlighter pixels before closing; colored text closes into a blob but is sparse.
     let raw = 0;
-    for (const k of c.cells) raw += mask[k];
+    for (const k of c.cells) raw += c.mask[k];
     if (raw / c.area < 0.55) continue;
     // Dominant color, measured on marker pixels inside the component.
     const hist = new Float64Array(36);
@@ -197,7 +245,7 @@ export function findMarks(img, scale, bodySize = 10, { figures = [], words = [] 
       for (let y = gy * step; y < Math.min(img.height, gy * step + step); y++) {
         for (let x = gx * step; x < Math.min(width, gx * step + step); x++) {
           const i = (y * width + x) * 4, r = data[i], g = data[i + 1], b = data[i + 2];
-          if (!isMarker(r, g, b)) continue;
+          if (!isMarker(r, g, b) || hueName(hsv(r, g, b)[0]) !== c.color) continue;
           hist[Math.floor(hsv(r, g, b)[0] / 10) % 36]++;
           sr += r; sg += g; sb += b;
           sr2 += r * r; sg2 += g * g; sb2 += b * b; n++;
@@ -221,7 +269,7 @@ export function findMarks(img, scale, bodySize = 10, { figures = [], words = [] 
       for (let y = gy * step; y < Math.min(img.height, gy * step + step); y++) {
         for (let x = gx * step; x < Math.min(width, gx * step + step); x++) {
           const i = (y * width + x) * 4, r = data[i], g = data[i + 1], b = data[i + 2];
-          if (!isMarker(r, g, b)) continue;
+          if (!isMarker(r, g, b) || hueName(hsv(r, g, b)[0]) !== c.color) continue;
           const bin = Math.floor(hsv(r, g, b)[0] / 10) % 36;
           if (Math.min((bin - peak + 36) % 36, (peak - bin + 36) % 36) > 2) continue;
           pr += r; pg += g; pb += b; pn++;
@@ -230,9 +278,46 @@ export function findMarks(img, scale, bodySize = 10, { figures = [], words = [] 
     }
     const rgb = [pr / pn, pg / pn, pb / pn].map(Math.round);
     const hue = hsv(...rgb)[0];
-    marks.push({ x0: c.x0 * unit, y0: c.y0 * unit, x1: (c.x1 + 1) * unit, y1: (c.y1 + 1) * unit, color: hueName(hue), hue, rgb, area: c.area * unit * unit });
+    // Retain the stroke footprint. Bounding boxes alone can cover neighboring
+    // questions which lie in empty space inside an irregular or connected mark.
+    const spans = [];
+    const cells = [...c.cells].sort((a, b) => a - b);
+    for (let i = 0; i < cells.length;) {
+      const start = cells[i], row = Math.floor(start / gw);
+      let end = start;
+      while (++i < cells.length && cells[i] === end + 1 && Math.floor(cells[i] / gw) === row) end = cells[i];
+      spans.push({ x0: start % gw * unit, y0: row * unit, x1: (end % gw + 1) * unit, y1: (row + 1) * unit });
+    }
+    marks.push({ x0: c.x0 * unit, y0: c.y0 * unit, x1: (c.x1 + 1) * unit, y1: (c.y1 + 1) * unit, color: hueName(hue), hue, rgb, area: c.area * unit * unit, spans, enclosed: c.enclosed });
   }
   return marks;
+}
+
+/** Labels in bounded holes of a stroke, rather than merely in its rectangle. */
+function enclosedLabels(c, gw, unit, anchors) {
+  const candidates = anchors.filter(a => {
+    const x = (a.x0 + a.x1) / 2 / unit, y = (a.y0 + a.y1) / 2 / unit;
+    return x > c.x0 && x < c.x1 + 1 && y > c.y0 && y < c.y1 + 1 &&
+      c.x0 * unit <= a.x0 - 0.8 && (c.x1 + 1) * unit >= a.x1 + 0.8 &&
+      c.y0 * unit <= a.y0 - 0.8 && (c.y1 + 1) * unit >= a.y1 + 0.8;
+  });
+  if (!candidates.length) return [];
+  const width = c.x1 - c.x0 + 3, height = c.y1 - c.y0 + 3;
+  const region = new Uint8Array(width * height);
+  for (const k of c.cells) region[(Math.floor(k / gw) - c.y0 + 1) * width + k % gw - c.x0 + 1] = 1;
+  const stack = [0]; region[0] = 2;
+  while (stack.length) {
+    const k = stack.pop(), x = k % width;
+    for (const n of [k - 1, k + 1, k - width, k + width]) {
+      if (n < 0 || n >= region.length || region[n] || (n === k - 1 && x === 0) || (n === k + 1 && x === width - 1)) continue;
+      region[n] = 2; stack.push(n);
+    }
+  }
+  return candidates.filter(a => {
+    const x = Math.floor((a.x0 + a.x1) / 2 / unit) - c.x0 + 1;
+    const y = Math.floor((a.y0 + a.y1) / 2 / unit) - c.y0 + 1;
+    return region[y * width + x] === 0;
+  }).map(a => a.number);
 }
 
 /**

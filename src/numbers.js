@@ -5,7 +5,7 @@ const NUM = '\\d{1,3}';
 /** @returns {number[]} sorted unique numbers */
 export function parseNumbers(input, available = null) {
   if (input == null) return [];
-  let text = String(input)
+  let text = String(input).normalize('NFKC')
     .replace(/[，、；;]/g, ',')
     .replace(/\b(?:and|plus)\b|&|和|与|及|还有|以及/gi, ',')
     .replace(/\b(?:through|thru|to)\b|至|到|~/gi, '-')
@@ -18,16 +18,18 @@ export function parseNumbers(input, available = null) {
     chunk = chunk.trim();
     if (!chunk) continue;
     const parity = /\b(odd|奇数|单数)\b|奇数|单数/i.test(chunk) ? 1 : /\b(even)\b|偶数|双数/i.test(chunk) ? 0 : null;
-    const ranges = [...chunk.matchAll(new RegExp(`(${NUM})\\s*-\\s*(${NUM})`, 'g'))];
+    const ranges = [...chunk.matchAll(new RegExp(`(?<![\\d.])(${NUM})\\s*-\\s*(${NUM})(?!\\d|\\.\\d)`, 'g'))];
     let rest = chunk;
     for (const r of ranges) {
       let a = +r[1], b = +r[2];
       if (a > b) [a, b] = [b, a];
-      if (b - a > 400) continue;
-      for (let n = a; n <= b; n++) if (parity == null || n % 2 === parity) out.add(n);
       rest = rest.replace(r[0], ' ');
+      for (let n = a; n <= b; n++) if (parity == null || n % 2 === parity) out.add(n);
     }
-    for (const m of rest.matchAll(new RegExp(`(?<![\\d.])(${NUM})(?![\\d.]\\d)`, 'g'))) out.add(+m[1]);
+    for (const m of rest.matchAll(new RegExp(`(?<![\\d.])(${NUM})(?!\\d|\\.\\d)`, 'g'))) {
+      const n = +m[1];
+      if (parity == null || n % 2 === parity) out.add(n);
+    }
   }
   let list = [...out].sort((a, b) => a - b);
   if (available) list = list.filter(n => available.has(n));

@@ -64,6 +64,8 @@ try {
     page.on('pageerror', e => errors.push(`${name}: ${e.message}`));
     await page.goto(`${BASE}/`);
     await page.waitForFunction(() => !!window.__syw);
+    // This fixture verifies explicit duplex layout, independent of the compact default.
+    await page.evaluate(() => Object.assign(window.__syw.state.settings, { pages: 2, space: 'fill' }));
 
     // Start a request while the file is still being read. Releasing this explicit
     // barrier is deterministic and verifies that selection waits for every page.

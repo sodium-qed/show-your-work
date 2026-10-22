@@ -6,8 +6,8 @@ Drop in the textbook pages you marked up. Every highlighted problem is pulled ou
 
 ## Three ways to pick problems
 
-- **Highlights.** Any highlighter color is found automatically: circles around numbers, swipes across a whole problem, ticks in the margin. Each color gets a chip (`Green 23`, `Orange 6`); the most-used color is selected when the file opens.
-- **Numbers.** Type `11, 13, 15–21 odd`, `41–56 even`, or `第23题和第25题`. A standalone list or range sets the numbered selection. Use `add` or `remove` for an incremental change; unnumbered drawn boxes stay selected.
+- **Highlights.** Highlighter colors are detected from circles around numbers, swipes across a problem, and ticks beside a label, including pale green and thin circles. A connected swipe can select several marked questions without selecting untouched questions inside its bounding rectangle. Each color gets a chip (`Green 23`, `Orange 6`); the most-used color is selected when the file opens. Clicking a chip selects only that color; Shift-click adds a color. The selected numbers stay visible above the preview.
+- **Numbers.** Type `11, 13, 15–21 odd`, `41–56 even`, or `第23题和第25题`. A standalone list/range or an explicit `only`, `select`, or `只要` list replaces the numbered selection. For example, `只要15, 17, 19, 23, 27, 29, 31, 33, 37, 39, 41` requests exactly those 11 labels and removes previously selected numbers after 41. Use `add` or `remove` for an incremental change; unnumbered drawn boxes stay selected.
 - **Draw.** Drag a box around anything the finder missed. The box is trimmed to the ink.
 
 Click any boxed problem on the page to add or remove it.
@@ -22,17 +22,21 @@ Type what you want in plain English or Chinese:
 
 becomes *23 green problems · 2 sides · fill the page*. Other examples: `remove 47 and 49`, `two columns, lots of room`, `polar grids for the plotting problems`, `A4`, `skip the directions`.
 
-Requests are read instantly by a rule reader. Choose **Use local AI** to add a small language model, [Qwen3.5-0.8B](https://huggingface.co/onnx-community/Qwen3.5-0.8B-Text-ONNX), running in the browser on WebGPU with [Transformers.js](https://huggingface.co/docs/transformers.js). It downloads once (about 470 MB) and is cached. Without WebGPU the rule reader keeps working on its own. The model handles phrasing the rules don't know ("print it on European paper", "put three problems on each line"); every field it proposes is checked against the words in your request, so it can't invent problem numbers or change settings you didn't mention. On the 28-request test set in `tests/agent.eval.mjs`, the rule reader alone gets 20 exactly right, the model alone 12, and the two together all 28.
+Requests are read instantly by a rule reader. Choose **Use local AI** to add a small language model, [Qwen3.5-0.8B](https://huggingface.co/onnx-community/Qwen3.5-0.8B-Text-ONNX), running in the browser on WebGPU with [Transformers.js](https://huggingface.co/docs/transformers.js). It downloads once (about 470 MB) and is cached. Without WebGPU the rule reader keeps working on its own. The model handles phrasing the rules don't know ("print it on European paper", "put three problems on each line"); every field it proposes is checked against the words in your request, so it can't invent problem numbers or change settings you didn't mention. The rule reader passes all 28 requests in `tests/agent.eval.mjs`; separate regression tests cover exact bilingual lists, mixed layout requests, and unsupported model proposals.
 
 Explicit lists and ranges always use the rule reader, even with Local AI on. For example, `1–50, omit (1, 2, 6, 7, 9, 12, 15, 16, 19, 20, 22, 42), look at all pages` requests exactly 38 exercises across the loaded pages. Source-page scope does not change the number of printed sides. Selection waits for queued page reading. If some requested labels are missing, the app selects the detected subset and lists the missing labels; if none are found, it keeps the previous selection. A chosen manual crop takes precedence over the automatic crop for that exercise. When a file repeats a number in Quick Review and its main exercises, number requests prefer the main exercise.
 
 Local AI interprets the request text. Page reading uses the PDF text layer and neural OCR; the language model does not inspect page images. Layout analysis checks the exercise columns, rows, directions, and figures before creating crops.
 
+If local AI inference stalls or its worker crashes, requests fall back to the rule reader. A failed model can be retried. Graph dimensions and page counts are not interpreted as question numbers; model-suggested ranges cannot invent numbers between explicitly listed endpoints.
+
 ## What the exam looks like
 
 - Problems are the original pixels from the page, so every fraction, radical and figure is exactly as printed. Problem numbers line up on one baseline per row.
 - Problems are grouped under their directions, with the "In Problems 11–18," prefix removed. Shared figures (the A/B/C/D graph for a matching set) come along once per group.
-- Work areas follow the directions: polar grids for "plot … polar coordinates", graph paper for "graph" or "plot", answer lines for "match", and (a)/(b)/(c) lines when the directions list parts. Change any group's work area from its menu.
+- Work areas follow the directions: polar grids, coordinate planes, complex planes with Re/Im axes, number lines, and answer lines. Ruled lines and dot grids are also available from each group's menu, alongside blank space and (a)/(b)/(c) lines.
+- Graph ranges adapt to readable coordinates and common polar amplitudes instead of stopping at 3. Tick spacing remains readable for large numbers, with negative coordinates labeled. The range reader is a heuristic, not a symbolic equation solver: use each group's **Range ±** or **Radius** field to override it, or clear the field to return to automatic sizing. Requests such as `complex planes, radius 10` also set the range.
+- New sessions default to **Fewest** pages and **Compact** spacing, preserving natural text size and tightening margins and gaps. **Save paper** applies this preset to existing saved settings. Export is disabled while the revised PDF is being built, so an old selection cannot be downloaded accidentally.
 - **Pages** fits the sheet to 1, 2 (one sheet, double-sided), 3 or 4 sides, scaling problems between 75% and 125% and sharing the leftover room as writing space. **Fewest** uses as few sides as possible.
 - Colored print (orange problem numbers, cyan arrows) is turned into dark gray for black-and-white printing.
 
@@ -79,6 +83,7 @@ npm run test:ranges                        # exact ranges, exclusions, manual cr
 npm run test:ocr                           # real browser OCR, incomplete text layers, download failure and retry (network required)
 npm run test:scan                          # raster math, exact even selection, complete/exclusive crop pixels
 npm run test:images                        # bundled image decoder, complete pale figures, PDF export
+npm run test:workspace                     # color replacement, work aids, ranges, compact layout, PDF labels
 node tests/ai.e2e.mjs                      # local model in the browser (WebGPU; see the file for a CPU stand-in)
 node tests/agent.eval.mjs rules            # request box scores; see the file for model runs
 ```

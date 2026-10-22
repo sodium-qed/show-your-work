@@ -56,6 +56,7 @@
     </div>
     <div class="mode-panel" data-panel="highlights">
       <div id="colors" class="colors"></div>
+      <p class="hint">Pick a color to select only those problems. Shift-click to add another color.</p>
     </div>
     <form class="mode-panel" data-panel="numbers" id="numbers-form" hidden>
       <label for="numbers">Problem numbers</label>
@@ -79,11 +80,13 @@
   <section class="exam" aria-label="Exam sheet">
     <div class="controls">
       <label>Pages<select id="set-pages"><option value="0">Fewest</option><option value="1">1 side</option><option value="2">2 sides (1 sheet, double-sided)</option><option value="3">3 sides</option><option value="4">4 sides</option></select></label>
-      <label>Room to work<select id="set-space"><option value="fill">Fill the page</option><option value="small">A little</option><option value="large">Lots</option><option value="none">None</option></select></label>
+      <label>Room to work<select id="set-space"><option value="compact">Compact</option><option value="fill">Fill the page</option><option value="small">A little</option><option value="large">Lots</option><option value="none">None</option></select></label>
       <label>Per row<select id="set-columns"><option value="0">Auto</option><option value="1">1</option><option value="2">2</option><option value="3">3</option></select></label>
       <label>Paper<select id="set-paper"><option value="letter">Letter</option><option value="a4">A4</option></select></label>
       <label class="check"><input id="set-directions" type="checkbox" checked> Directions</label>
+      <button id="save-paper" class="btn quiet small" type="button">Save paper</button>
     </div>
+    <p id="selection-summary" class="selection-summary" role="status" aria-live="polite"></p>
     <div id="groups" class="groups"></div>
     <div class="exam-actions">
       <button id="download" class="btn pen" type="button" disabled>Download PDF</button>

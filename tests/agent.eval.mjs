@@ -10,7 +10,7 @@ import { MODEL_ID, TOOLS, systemPrompt, parseToolCalls } from '../src/agent-prom
 
 const [modelId = MODEL_ID, dtype = 'q4'] = process.argv.slice(2);
 const CASES = [
-  ['请帮我把所有绿色的问题全部都提取出来，制作成一个数学考试风格的题目，在一个 PDF 上面，就是白纸上打印出来。题目要留出一定空间给我当过程，完全考试风格，不要浪费空间，紧凑一些。一页double side。不要加那种什么 "School Math" 或者什么 "Good PDF" 那种上面的那些莫名其妙的 text。只要题目不要有任何那种名字什么那种垃圾东西。', { highlight_color: 'green', pages: 2, space: 'fill' }],
+  ['请帮我把所有绿色的问题全部都提取出来，制作成一个数学考试风格的题目，在一个 PDF 上面，就是白纸上打印出来。题目要留出一定空间给我当过程，完全考试风格，不要浪费空间，紧凑一些。一页double side。不要加那种什么 "School Math" 或者什么 "Good PDF" 那种上面的那些莫名其妙的 text。只要题目不要有任何那种名字什么那种垃圾东西。', { highlight_color: 'green', pages: 2, space: 'compact' }],
   ['extract the green ones', { highlight_color: 'green' }],
   ['do 11, 13, and 41-45 odd', { add: [11, 13, 41, 43, 45] }],
   ['只要第23题和第25题', { add: [23, 25] }],
@@ -22,7 +22,7 @@ const CASES = [
   ['start over', { clear: true }],
   ['A4 paper please', { paper: 'a4' }],
   ['把黄色的题目做成两页', { highlight_color: 'yellow', pages: 2 }],
-  ['problems 57 through 67 odd, compact', { add: [57, 59, 61, 63, 65, 67], space: 'fill' }],
+  ['problems 57 through 67 odd, compact', { add: [57, 59, 61, 63, 65, 67], space: 'compact' }],
   ['不要35题', { remove: [35] }],
   ['highlighted problems only, 3 per row', { highlight_color: 'any', columns: 3 }],
   // Paraphrases the rules don't anticipate.
