@@ -53,12 +53,17 @@ Serve the app over HTTP or HTTPS; opening index.html by double-click does not su
 
 - Select problems by highlighter color, number/range, or a drawn box.
 - A standalone number list or range sets the numbered selection. Use add/remove for incremental changes; exclusions such as 1-50, omit (2, 4) are supported.
+- Explicit only/select/只要 lists replace earlier numbered choices, including when mixed with layout settings. Color chips select only that color; Shift-click adds another color.
 - Preserve printed math and figures while removing highlighter from the output.
 - Choose page count, columns, paper size and writing space, then download or print a PDF.
+- Choose coordinate, polar, or complex planes, number lines, ruled lines, dot grids, or blank space. Graph ranges adapt to readable values; each group has a manual range override.
+- New sessions use Fewest pages and Compact spacing. Save paper applies this preset to saved settings.
 - Use the bundled sample PDF to try the app.
 - Use Read page visually above a source page to recover missing number labels or retry a failed text-reader download, then enter the requested numbers again.
 
 PDF text and visual OCR cross-check missing exercise labels. The optional Local AI interprets request text; it does not inspect page images. Review the source boxes before printing, and use Draw for an ambiguous problem.
+
+Graph ranges are estimates for supported readable expressions, not a general symbolic solution. Use Range or Radius to override an unsuitable automatic scale. Stalled Local AI requests fall back to the rule reader.
 
 PDF libraries, fonts, character maps and their license files are bundled. Textbook files are processed locally in the browser. OCR for scans, photos, or incomplete PDF text layers and the optional local AI require external downloads. Local AI additionally requires WebGPU; the rule-based request reader works without it. This is not a fully offline package.
 

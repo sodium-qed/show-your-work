@@ -2,13 +2,14 @@
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { mkdir, writeFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
 import { chromium } from 'playwright';
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { createStaticServer } from '../scripts/serve.mjs';
 
-const out = 'tests/output/workspace';
+const out = process.env.OUT || 'tests/output/workspace';
 await mkdir(out, { recursive: true });
-const server = createStaticServer().listen(0);
+const server = createStaticServer(process.env.E2E_ROOT ? resolve(process.env.E2E_ROOT) : undefined).listen(0);
 await once(server, 'listening');
 const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });

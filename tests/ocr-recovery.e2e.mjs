@@ -98,6 +98,8 @@ try {
   page.on('request', request => { if (/tesseract|traineddata/i.test(request.url())) ocrRequests.push(request.url()); });
   await page.goto(`${BASE}/`);
   await page.waitForFunction(() => !!window.__syw);
+  // Verify an explicitly requested duplex worksheet, independent of compact defaults.
+  await page.evaluate(() => Object.assign(window.__syw.state.settings, { pages: 2, space: 'fill' }));
   const bytes = await textbook(page, { laterPage: true });
   await writeFile(`${out}/raster-labels.pdf`, bytes);
   await addPdf(page, bytes);

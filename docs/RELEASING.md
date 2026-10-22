@@ -13,6 +13,7 @@ Requirements: Node.js 22.3.0 or newer, npm, Python 3, Git.
    npm run test:ocr
    npm run test:scan
    npm run test:images
+   npm run test:workspace
    ```
 
    Confirm the selections match, requests wait for unfinished uploads, missing-number warnings appear, a PDF downloads successfully, its pages open, plus no application errors appear. The selection test generates its own two-page fixtures for plain exercise numbers and fragmented PDF text labels. The OCR test requires network access and uses real browser OCR on generated PDFs with rasterized number labels and readable prose. It checks complete text/figure crops, continued reading after a failed download, recovery in the same tab, and preservation of selected problems, manual boxes, and work-area choices.

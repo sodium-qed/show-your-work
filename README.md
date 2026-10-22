@@ -55,7 +55,7 @@ If local AI inference stalls or its worker crashes, requests fall back to the ru
 
 ### Download a release
 
-Download `show-your-work-1.0.3.zip` from [GitHub Releases](https://github.com/sodium-qed/show-your-work/releases/latest), extract the complete folder, then run `npm start` inside it with Node.js 22.3.0 or newer. Open `http://localhost:4173`. The release includes the PDF libraries; no `npm install` is needed. Keep the extracted files together; opening `index.html` directly does not support the app's module loading.
+Download `show-your-work-1.1.0.zip` from [GitHub Releases](https://github.com/sodium-qed/show-your-work/releases/latest), extract the complete folder, then run `npm start` inside it with Node.js 22.3.0 or newer. Open `http://localhost:4173`. The release includes the PDF libraries; no `npm install` is needed. Keep the extracted files together; opening `index.html` directly does not support the app's module loading.
 
 ### Run from source
 
@@ -70,7 +70,7 @@ Any static host works (GitHub Pages: Settings → Pages → Deploy from branch �
 
 ### Build a release
 
-`npm run build` stages the complete runnable app in `dist/show-your-work-1.0.3/`. `npm run release:package` also creates the ZIP plus `dist/SHA256SUMS` (Python 3 required for packaging). Build from the release commit so `version.json` records its source revision. See [the release checklist](docs/RELEASING.md).
+`npm run build` stages the complete runnable app in `dist/show-your-work-1.1.0/`. `npm run release:package` also creates the ZIP plus `dist/SHA256SUMS` (Python 3 required for packaging). Build from the release commit so `version.json` records its source revision. See [the release checklist](docs/RELEASING.md).
 
 ## Tests
 
